@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-mac-intel:
     name: Build GoBuddy Intel x64 DMG
@@ -38,7 +41,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Build Intel x64 DMG
-        run: npm run dist:mac
+        run: npm run dist:mac -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
