@@ -1,6 +1,6 @@
 {
   "name": "gobuddy-electron",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "GoBuddy - Windows desktop productivity assistant with clipboard history, screenshots and local AI knowledge agent.",
   "author": "Darerd <yuhuidarer@gmail.com>",
   "private": true,
@@ -67,7 +67,8 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "GoBuddy-${version}-Setup.${ext}"
+      "artifactName": "GoBuddy-${version}-Setup.${ext}",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
