@@ -21,7 +21,6 @@ import { GoBuddyDatabase } from "./database.mjs";
 import { registerGlobalHotkeys } from "./hotkeys.mjs";
 import { ScreenshotController } from "./screenshot.mjs";
 import { KnowledgeService } from "./knowledge-service.mjs";
-import { installKnowledgeSurface } from "./knowledge-surface.mjs";
 import { HarnessRuntimeManager } from "./harness-runtime.mjs";
 import { ChatAgentService } from "./chat-agent.mjs";
 
@@ -172,16 +171,6 @@ function createMainWindow() {
     shell.openExternal(url).catch((error) => database?.logEvent("window.open.external.failed", false, error.message));
     return { action: "deny" };
   });
-  mainWindow.webContents.on("did-finish-load", () => {
-    const currentUrl = mainWindow?.webContents.getURL() ?? "";
-    if (currentUrl.startsWith(harnessClientUrl)) {
-      installKnowledgeSurface(mainWindow)
-        .then((surfaceState) => appendMainLog("knowledgeSurface.injected", surfaceState))
-        .catch((error) => {
-          appendMainLog("knowledgeSurface.inject.failed", { message: error.message, stack: error.stack });
-        });
-    }
-  });
 
   loadHarnessSplash(mainWindow, "正在启动 DeepSeek Harness...");
 }
@@ -199,8 +188,6 @@ async function loadHarnessClientInMainWindow(settings) {
     await waitForHarnessReady();
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(harnessClientUrl);
-      const surfaceState = await installKnowledgeSurface(mainWindow);
-      appendMainLog("knowledgeSurface.injected", surfaceState);
       appendMainLog("window.loadHarness.loaded", { url: harnessClientUrl });
     }
   } catch (error) {

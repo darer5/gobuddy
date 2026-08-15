@@ -1,6 +1,6 @@
 {
   "name": "gobuddy-electron",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "GoBuddy - Windows desktop productivity assistant with screenshots and local AI knowledge agent.",
   "author": "Darerd <yuhuidarer@gmail.com>",
   "private": true,
