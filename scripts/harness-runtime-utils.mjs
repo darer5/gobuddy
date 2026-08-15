@@ -104,7 +104,7 @@ export function writeRuntimeManifest(runtimeDir) {
  */
 export function bootstrapHarnessRuntime(targetDir) {
   fs.rmSync(targetDir, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+  fs.mkdirSync(targetDir, { recursive: true });
 
   // npm needs a package.json to reliably work with --prefix on an empty dir.
   fs.writeFileSync(
