@@ -30,12 +30,6 @@ export const defaultSettings = {
   window: {
     closeBehavior: "quit",
   },
-  pet: {
-    enabled: true,
-    x: 980,
-    y: 520,
-    actionsEnabled: true,
-  },
 };
 
 export class SettingsStore {

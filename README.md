@@ -1,6 +1,6 @@
 # GoBuddy Electron
 
-GoBuddy 现在是纯 Electron 桌面应用。Electron Main 负责窗口、托盘、全局快捷键、剪贴板监听、截图、SQLite 和 IPC；React/Vite Renderer 负责 Codex 风格主界面、粘贴板工作台、对话占位、设置和 Shimeji 行为型宠物浮窗。
+GoBuddy 现在是纯 Electron 桌面应用。Electron Main 负责窗口、托盘、全局快捷键、剪贴板监听、截图、SQLite 和 IPC；React/Vite Renderer 负责 Codex 风格主界面、粘贴板工作台、对话占位和设置。
 
 ## 开发
 
@@ -24,4 +24,4 @@ npm run electron
 npm test
 ```
 
-当前测试覆盖快捷键解析、设置合并、剪贴板分类、SQLite CRUD 和宠物状态机。
+当前测试覆盖快捷键解析、设置合并、剪贴板分类、SQLite CRUD 和知识服务。

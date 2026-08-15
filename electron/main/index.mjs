@@ -21,9 +21,6 @@ import { GoBuddyDatabase } from "./database.mjs";
 import { registerGlobalHotkeys } from "./hotkeys.mjs";
 import { ClipboardMonitor } from "./clipboard.mjs";
 import { ScreenshotController } from "./screenshot.mjs";
-import { PetStateMachine } from "./pet-state.mjs";
-import { loadPetManifest } from "./pet-manifest.mjs";
-import { clampPetBounds, defaultPetWindowSize, movePetBounds } from "./pet-window-bounds.mjs";
 import { KnowledgeService } from "./knowledge-service.mjs";
 import { installKnowledgeSurface } from "./knowledge-surface.mjs";
 import { HarnessRuntimeManager } from "./harness-runtime.mjs";
@@ -38,7 +35,6 @@ const devServerUrl = process.env.GOBUDDY_DEV_SERVER_URL;
 const harnessClientUrl = "http://127.0.0.1:3080/";
 
 let mainWindow;
-let petWindow;
 let tray;
 let settingsStore;
 let database;
@@ -47,7 +43,6 @@ let screenshotController;
 let knowledgeService;
 let harnessRuntime;
 let chatAgent;
-const petState = new PetStateMachine();
 
 app.setName("GoBuddy");
 
@@ -84,7 +79,6 @@ app.whenReady().then(async () => {
     database,
     settingsStore,
     sendEvent,
-    setPetMode,
   });
   clipboardMonitor.start();
   appendMainLog("clipboardMonitor.started");
@@ -110,13 +104,11 @@ app.whenReady().then(async () => {
     settingsStore,
     getPreloadPath,
     loadWindow,
-    setPetMode,
   });
 
   registerHotkeys(settings.hotkeys);
   appendMainLog("hotkeys.registered");
   loadHarnessClientInMainWindow(settings);
-  setInterval(() => setPetState(petState.tick()), 1200);
 }).catch((error) => {
   appendMainLog("app.ready.failed", { message: error.message, stack: error.stack });
 });
@@ -166,13 +158,11 @@ function createMainWindow() {
       type: "question",
       title: "关闭 GoBuddy",
       message: "你想如何关闭主界面？",
-      buttons: ["只保留宠物浮窗", "最小化到托盘", "退出 GoBuddy"],
-      cancelId: 1,
-      defaultId: 2,
+      buttons: ["最小化到托盘", "退出 GoBuddy"],
+      cancelId: 0,
+      defaultId: 1,
     });
     if (choice.response === 0) {
-      handleCloseChoice("pet-only");
-    } else if (choice.response === 1) {
       handleCloseChoice("minimize-to-tray");
     } else {
       handleCloseChoice("quit");
@@ -234,43 +224,6 @@ async function loadHarnessClientInMainWindow(settings) {
   }
 }
 
-function createPetWindow(settings) {
-  const bounds = clampPetBounds(
-    { x: settings.pet.x, y: settings.pet.y, ...defaultPetWindowSize },
-    screen.getAllDisplays(),
-  );
-  settingsStore.update({ pet: { x: bounds.x, y: bounds.y } });
-
-  petWindow = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    resizable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    webPreferences: {
-      preload: getPreloadPath("pet.mjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  setPetPointerMode("interactive");
-  petWindow.on("moved", () => {
-    const [x, y] = petWindow.getPosition();
-    settingsStore.update({ pet: { x, y } });
-  });
-  loadWindow(petWindow, "#pet")
-    .then(() => setPetState(petState.snapshot()))
-    .catch((error) => {
-      database?.logEvent("pet.load.failed", false, error.message);
-    });
-}
-
 function createTray() {
   const iconPath = path.join(process.cwd(), "public", "favicon.ico");
   const icon = nativeImage.createFromPath(iconPath);
@@ -279,7 +232,6 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "打开主界面", click: () => showMainWindow() },
-      { label: "显示宠物浮窗", click: () => showPetWindow() },
       { type: "separator" },
       { label: "退出 GoBuddy", click: () => handleCloseChoice("quit") },
     ]),
@@ -325,33 +277,6 @@ function wireIpc() {
     return { settings, results };
   });
   ipcMain.handle("window:closeChoice", (_, choice) => handleCloseChoice(choice));
-  ipcMain.handle("pet:setMode", (_, payload) => {
-    if (typeof payload === "string") {
-      return setPetMode(payload);
-    }
-
-    return setPetMode(payload.mode, payload.message, { force: Boolean(payload.force) });
-  });
-  ipcMain.handle("pet:openMain", () => {
-    showMainWindow();
-    return setPetMode("main-open", "主页面已打开，我也在旁边待命。");
-  });
-  ipcMain.handle("pet:setPointerMode", (_, mode) => setPetPointerMode(mode));
-  ipcMain.handle("pet:moveBy", (_, delta) => movePetWindow(delta));
-  ipcMain.handle("pet:getManifest", () => loadPetManifest());
-  ipcMain.handle("pet:hide", () => {
-    hidePetWindow();
-    return { ok: true };
-  });
-  ipcMain.handle("pet:resetPosition", () => {
-    const bounds = clampPetBounds(defaultPetWindowSize, screen.getAllDisplays());
-    if (petWindow && !petWindow.isDestroyed()) {
-      petWindow.setBounds(bounds);
-    }
-    settingsStore.update({ pet: { x: bounds.x, y: bounds.y } });
-    return { ok: true, bounds };
-  });
-  ipcMain.handle("pet:quit", () => handleCloseChoice("quit"));
   ipcMain.handle("knowledge:search", (_, query) => knowledgeService.search(query));
   ipcMain.handle("knowledge:listRecent", (_, query) => knowledgeService.listRecent(query));
   ipcMain.handle("knowledge:update", (_, id, patch) => knowledgeService.update(id, patch));
@@ -377,7 +302,6 @@ function registerHotkeys(hotkeys) {
         clipboardHistory: () => {
           showMainWindow();
           sendEvent("clipboard:show-history", {});
-          setPetMode("clipboard-text", "粘贴历史已打开。");
         },
       },
       (type, success, message) => database.logEvent(type, success, message),
@@ -398,16 +322,8 @@ function handleCloseChoice(choice) {
     return { ok: true };
   }
 
-  if (choice === "pet-only") {
-    mainWindow?.hide();
-    showPetWindow();
-    setPetMode("idle", "我会留在桌面上。");
-    return { ok: true };
-  }
-
   if (choice === "minimize-to-tray") {
     mainWindow?.hide();
-    setPetMode("sleep", "我先在托盘待命。");
     return { ok: true };
   }
 
@@ -423,7 +339,6 @@ function showMainWindow() {
     createMainWindow();
     loadHarnessClientInMainWindow(settingsStore.load());
   }
-  hidePetWindow();
   mainWindow.show();
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
@@ -431,78 +346,8 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
-function showPetWindow() {
-  if (!petWindow || petWindow.isDestroyed()) {
-    createPetWindow(settingsStore.load());
-  }
-  const bounds = clampPetBounds(petWindow.getBounds(), screen.getAllDisplays());
-  petWindow.setBounds(bounds);
-  setPetPointerMode("interactive");
-  petWindow.show();
-}
-
-function hidePetWindow() {
-  if (petWindow && !petWindow.isDestroyed()) {
-    petWindow.hide();
-  }
-}
-
-function setPetPointerMode(mode) {
-  if (!petWindow || petWindow.isDestroyed()) {
-    return { ok: false, message: "pet window is not open" };
-  }
-
-  if (mode === "interactive") {
-    petWindow.setIgnoreMouseEvents(false);
-    return { ok: true, mode };
-  }
-
-  petWindow.setIgnoreMouseEvents(true, { forward: true });
-  return { ok: true, mode: "passthrough" };
-}
-
-function movePetWindow(delta) {
-  if (!petWindow || petWindow.isDestroyed()) {
-    return { ok: false, message: "pet window is not open" };
-  }
-
-  const next = movePetBounds(petWindow.getBounds(), delta ?? {}, screen.getAllDisplays());
-  petWindow.setBounds(next);
-  settingsStore.update({ pet: { x: next.x, y: next.y } });
-  return { ok: true, bounds: next };
-}
-
-function setPetMode(mode, message = "", options = {}) {
-  if (!options.force && !petState.canInterruptWith(mode)) {
-    return petState.snapshot();
-  }
-
-  const state = petState.setMode(mode, message);
-  showPetForWorkEvent(state);
-  setPetState(state);
-  return state;
-}
-
-function showPetForWorkEvent(state) {
-  if (state.layer !== "work") {
-    return;
-  }
-
-  if (!settingsStore.load().pet.enabled) {
-    return;
-  }
-
-  showPetWindow();
-}
-
-function setPetState(state) {
-  sendToWindow(petWindow, "pet:event", state);
-  sendToWindow(mainWindow, "pet:event", state);
-}
-
 function sendEvent(event, payload) {
   sendToWindow(mainWindow, event, payload);
-  sendToWindow(petWindow, event, payload);
 }
 
 function sendToWindow(window, event, payload) {

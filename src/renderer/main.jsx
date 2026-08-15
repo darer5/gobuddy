@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Add24Regular,
@@ -26,9 +26,6 @@ const api = window.goBuddy ?? createBrowserMockApi();
 
 function Root() {
   const hash = window.location.hash;
-  if (hash === "#pet") {
-    return <PetWindow />;
-  }
   if (hash === "#capture") {
     return <CaptureOverlay />;
   }
@@ -38,7 +35,6 @@ function Root() {
 function MainApp() {
   const [view, setView] = useState("clipboard");
   const [settings, setSettings] = useState(null);
-  const [petState, setPetState] = useState({ mode: "idle", message: "我在这里。" });
   const [activeSessionId, setActiveSessionId] = useState("");
   const [sessions, setSessions] = useState([]);
   const [details, setDetails] = useState({ open: false, kind: "empty" });
@@ -46,7 +42,6 @@ function MainApp() {
 
   useEffect(() => {
     api.settings.get().then(setSettings);
-    return api.on("pet:event", setPetState);
   }, []);
 
   useEffect(() => {
@@ -82,7 +77,6 @@ function MainApp() {
     <main className={`app-frame ${collapsed ? "sidebar-collapsed" : ""} ${details.open ? "details-open" : ""}`} data-theme={settings?.appearance?.theme ?? "system"}>
       <aside className="sidebar">
         <div className="brand">
-          <img src="assets/pet-cropped.png" alt="" />
           <strong>GoBuddy</strong>
           <button className="icon-button collapse-button" onClick={() => updateAppearance({ sidebarCollapsed: !collapsed })} aria-label="切换侧栏">
             {collapsed ? ">" : "<"}
@@ -128,10 +122,6 @@ function MainApp() {
               <Image24Regular />
               截图
             </button>
-            <div className={`pet-pill mode-${petState.mode}`}>
-              <span />
-              {petState.message}
-            </div>
           </div>
         </header>
 
@@ -610,176 +600,6 @@ function SettingsPanel({ settings, onSaved }) {
   );
 }
 
-function PetWindow() {
-  const [state, setState] = useState({
-    mode: "idle",
-    expression: "calm",
-    animation: "breathe",
-    message: "我在这里。",
-  });
-  const [manifest, setManifest] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const dragRef = useRef({ dragging: false, moved: false, lastX: 0, lastY: 0 });
-  const action = manifest?.actions?.[state.mode] ?? manifest?.actions?.idle;
-  const frameSrc = usePetFrame(action, manifest?.fallbackFrame ?? "assets/pet-cropped.png");
-
-  useEffect(() => {
-    return window.goBuddyPet?.onEvent(setState);
-  }, []);
-
-  useEffect(() => {
-    const manifestRequest = window.goBuddyPet?.getManifest?.();
-    if (!manifestRequest) {
-      setManifest({ fallbackFrame: "assets/pet-cropped.png", actions: {} });
-      return undefined;
-    }
-
-    manifestRequest.then(setManifest).catch(() => {
-      setManifest({ fallbackFrame: "assets/pet-cropped.png", actions: {} });
-    });
-    window.goBuddyPet?.setPointerMode?.("interactive");
-    return undefined;
-  }, []);
-
-  async function openMain() {
-    await window.goBuddyPet?.openMain();
-  }
-
-  async function enterHitbox() {
-    await window.goBuddyPet?.setPointerMode?.("interactive");
-    await window.goBuddyPet?.setMode?.({ mode: "look", message: "需要我时点一下就好。" });
-  }
-
-  async function leaveHitbox() {
-    if (dragRef.current.dragging) return;
-    setMenuOpen(false);
-  }
-
-  async function beginDrag(event) {
-    if (event.button !== 0) return;
-    dragRef.current = {
-      dragging: true,
-      moved: false,
-      lastX: event.screenX,
-      lastY: event.screenY,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    await window.goBuddyPet?.setPointerMode?.("interactive");
-    await window.goBuddyPet?.setMode?.({ mode: "drag", message: "正在移动位置。" });
-  }
-
-  async function moveDrag(event) {
-    if (!dragRef.current.dragging) return;
-    const delta = {
-      x: event.screenX - dragRef.current.lastX,
-      y: event.screenY - dragRef.current.lastY,
-    };
-    if (Math.abs(delta.x) + Math.abs(delta.y) > 0) {
-      dragRef.current.moved = true;
-      dragRef.current.lastX = event.screenX;
-      dragRef.current.lastY = event.screenY;
-      await window.goBuddyPet?.moveBy?.(delta);
-    }
-  }
-
-  async function endDrag(event) {
-    if (!dragRef.current.dragging) return;
-    dragRef.current.dragging = false;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    await window.goBuddyPet?.setMode?.({ mode: "poke", message: "位置放好了。", force: true });
-  }
-
-  async function handleClick(event) {
-    if (dragRef.current.moved) {
-      dragRef.current.moved = false;
-      event.preventDefault();
-      return;
-    }
-    await openMain();
-  }
-
-  function openContextMenu(event) {
-    event.preventDefault();
-    setMenuOpen(true);
-    window.goBuddyPet?.setPointerMode?.("interactive");
-    window.goBuddyPet?.setMode?.({ mode: "poke", message: "这里有几个快捷操作。" });
-  }
-
-  return (
-    <main className={`pet-window mode-${state.mode} expression-${state.expression} animation-${state.animation}`}>
-      <div className="pet-bubble">{state.message}</div>
-      <button
-        className="pet-avatar"
-        onClick={handleClick}
-        onContextMenu={openContextMenu}
-        onMouseEnter={enterHitbox}
-        onMouseLeave={leaveHitbox}
-        onPointerDown={beginDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-      >
-        <span className="pet-stage" key={`${state.mode}-${state.updatedAt}`}>
-          <span className="pet-aura" />
-          <PetFrameImage src={frameSrc} fallback={manifest?.fallbackFrame ?? "assets/pet-cropped.png"} />
-          <span className="pet-face" aria-hidden="true">
-            <span className="eye left-eye" />
-            <span className="eye right-eye" />
-            <span className="mouth" />
-          </span>
-          <span className="pet-emote" aria-hidden="true">{emoteForExpression(state.expression)}</span>
-          <span className="pet-sparkle sparkle-a" />
-          <span className="pet-sparkle sparkle-b" />
-        </span>
-      </button>
-      {menuOpen && (
-        <div className="pet-menu" onMouseEnter={() => window.goBuddyPet?.setPointerMode?.("interactive")}>
-          <button onClick={openMain}>打开主界面</button>
-          <button onClick={() => window.goBuddyPet?.hide?.()}>隐藏宠物</button>
-          <button onClick={() => window.goBuddyPet?.resetPosition?.()}>重置位置</button>
-          <button className="danger" onClick={() => window.goBuddyPet?.quit?.()}>退出 GoBuddy</button>
-        </div>
-      )}
-    </main>
-  );
-}
-
-function PetFrameImage({ src, fallback }) {
-  const [failedSrc, setFailedSrc] = useState("");
-  const safeSrc = failedSrc === src ? fallback : src;
-
-  useEffect(() => {
-    setFailedSrc("");
-  }, [src]);
-
-  return <img className="pet-sprite" src={safeSrc} alt="GoBuddy 桌宠" draggable={false} onError={() => setFailedSrc(src)} />;
-}
-
-function usePetFrame(action, fallbackFrame) {
-  const [frameIndex, setFrameIndex] = useState(0);
-  const frames = action?.frames?.length ? action.frames : [{ src: fallbackFrame, exists: true }];
-  const fps = Math.max(1, action?.fps ?? 1);
-  const loop = action?.loop ?? true;
-
-  useEffect(() => {
-    setFrameIndex(0);
-    if (frames.length <= 1) return undefined;
-
-    const interval = window.setInterval(() => {
-      setFrameIndex((current) => {
-        const next = current + 1;
-        if (next < frames.length) return next;
-        return loop ? 0 : current;
-      });
-    }, 1000 / fps);
-
-    return () => window.clearInterval(interval);
-  }, [action?.mode, frames.length, fps, loop]);
-
-  const frame = frames[Math.min(frameIndex, frames.length - 1)];
-  return frame?.exists === false ? fallbackFrame : frame?.src ?? fallbackFrame;
-}
-
 function CaptureOverlay() {
   const [start, setStart] = useState(null);
   const [rect, setRect] = useState(null);
@@ -883,7 +703,6 @@ function createBrowserMockApi() {
     },
     hotkeys: { register: async () => ({ ok: true }) },
     window: { closeChoice: async () => ({ ok: true }) },
-    pet: { setMode: async () => ({ ok: true }) },
     knowledge: {
       search: async () => mockItems.map((item) => ({ ...item, sourceType: "clipboard", note: "", tags: [] })),
       update: async () => ({ ok: true }),
@@ -922,19 +741,6 @@ export function filePathToUrl(filePath) {
     .map((segment, index) => (index === 0 && segment.endsWith(":") ? segment : encodeURIComponent(segment)))
     .join("/");
   return `file:///${encoded}`;
-}
-
-function emoteForExpression(expression) {
-  return {
-    calm: "·",
-    blink: "…",
-    curious: "?",
-    happy: "!",
-    focused: "✓",
-    sleepy: "Z",
-    surprised: "!",
-    proud: "★",
-  }[expression] ?? "·";
 }
 
 createRoot(document.getElementById("root")).render(<Root />);

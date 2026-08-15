@@ -4,7 +4,6 @@ const validEvents = new Set([
   "clipboard:changed",
   "clipboard:show-history",
   "settings:changed",
-  "pet:event",
   "chat:message",
   "chat:token",
   "chat:toolCall",
@@ -32,10 +31,6 @@ contextBridge.exposeInMainWorld("goBuddy", {
   },
   window: {
     closeChoice: (choice) => ipcRenderer.invoke("window:closeChoice", choice),
-  },
-  pet: {
-    setMode: (mode) => ipcRenderer.invoke("pet:setMode", mode),
-    openMain: () => ipcRenderer.invoke("pet:openMain"),
   },
   knowledge: {
     listRecent: (query) => ipcRenderer.invoke("knowledge:listRecent", query),

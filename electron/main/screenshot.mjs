@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 export class ScreenshotController {
-  constructor({ BrowserWindow, desktopCapturer, screen, clipboard, database, settingsStore, getPreloadPath, loadWindow, setPetMode }) {
+  constructor({ BrowserWindow, desktopCapturer, screen, clipboard, database, settingsStore, getPreloadPath, loadWindow }) {
     this.BrowserWindow = BrowserWindow;
     this.desktopCapturer = desktopCapturer;
     this.screen = screen;
@@ -12,7 +12,6 @@ export class ScreenshotController {
     this.settingsStore = settingsStore;
     this.getPreloadPath = getPreloadPath;
     this.loadWindow = loadWindow;
-    this.setPetMode = setPetMode;
     this.captureWindow = null;
   }
 
@@ -41,7 +40,6 @@ export class ScreenshotController {
       },
     });
     await this.loadWindow(this.captureWindow, "#capture");
-    this.setPetMode("screenshot-start", "截图选择框已打开。", { force: true });
     return { ok: true };
   }
 
@@ -85,14 +83,12 @@ export class ScreenshotController {
     };
     this.database.addScreenshot(item);
     this.database.logEvent("screenshot.saved", true, item.message);
-    this.setPetMode("screenshot-success", item.message, { force: true });
     this.closeCaptureWindow();
     return { ok: true, item };
   }
 
   cancelRegionCapture() {
     this.database.logEvent("screenshot.cancelled", true, "截图已取消。");
-    this.setPetMode("screenshot-cancel", "已取消截图。", { force: true });
     this.closeCaptureWindow();
     return { ok: true };
   }
