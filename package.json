@@ -1,6 +1,8 @@
 {
   "name": "gobuddy-electron",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "GoBuddy - Windows desktop productivity assistant with clipboard history, screenshots and local AI knowledge agent.",
+  "author": "Darerd <yuhuidarer@gmail.com>",
   "private": true,
   "type": "module",
   "main": "electron/main/index.mjs",
