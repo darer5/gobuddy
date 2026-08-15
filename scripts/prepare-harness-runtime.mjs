@@ -1,37 +1,39 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import {
+  PRESET_PLUGINS,
+  bootstrapHarnessRuntime,
+  installPresetPlugins,
+  writeRuntimeManifest,
+} from "./harness-runtime-utils.mjs";
 
 /**
- * Plugins bundled into the Harness runtime and auto-mounted into every new
- * web profile. Key = npm package name, value = exact version (or npm range)
- * pinned at build time. Installing into the runtime's own node_modules lets
- * DSH resolve them as profile bundles without any profile-local install:
- * `resolveBundleDir` prefers the installation anchor, and the client half
- * resolves from the harness process's node_modules.
+ * Prepare the bundled DeepSeek Harness runtime at vendor/HarnessRuntimeManaged
+ * for packaging.
+ *
+ * Source precedence:
+ *   1. GOBUDDY_HARNESS_RUNTIME env var (explicit path to a prepared runtime).
+ *   2. The platform's GoBuddy user-data location:
+ *        Windows: %USERPROFILE%\AppData\Roaming\GoBuddy\HarnessRuntimeManaged
+ *        macOS/Linux: ~/Library/Application Support/GoBuddy/HarnessRuntimeManaged
+ *   3. If neither exists, the runtime is bootstrapped from scratch via npm
+ *      (see bootstrapHarnessRuntime) — this is how fresh macOS/CI machines
+ *      build without a pre-existing GoBuddy install.
  */
-const PRESET_PLUGINS = {
-  "dsh-better-sidebar": "0.12.1",
-  "dshmarket": "1.3.0",
-  "dsh-global-rules": "0.1.0",
-};
-
-const source = process.env.GOBUDDY_HARNESS_RUNTIME
-  || path.join(os.homedir(), "AppData", "Roaming", "GoBuddy", "HarnessRuntimeManaged");
+const defaultSource = process.platform === "win32"
+  ? path.join(os.homedir(), "AppData", "Roaming", "GoBuddy", "HarnessRuntimeManaged")
+  : path.join(os.homedir(), "Library", "Application Support", "GoBuddy", "HarnessRuntimeManaged");
+const source = process.env.GOBUDDY_HARNESS_RUNTIME || defaultSource;
 const vendorRoot = path.join(process.cwd(), "vendor");
 const target = path.join(vendorRoot, "HarnessRuntimeManaged");
 const dshEntry = path.join(source, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
-
-if (!fs.existsSync(dshEntry)) {
-  throw new Error(`Harness runtime is not ready: ${dshEntry}`);
-}
 
 assertInsideVendor(target);
 
 if (isRuntimeUpToDate(target)) {
   console.log(`Bundled Harness runtime is up to date, skipping copy/install: ${target}`);
-} else {
+} else if (fs.existsSync(dshEntry)) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.cpSync(source, target, {
@@ -49,6 +51,13 @@ if (isRuntimeUpToDate(target)) {
   writeRuntimeManifest(target);
 
   console.log(`Prepared bundled Harness runtime: ${target}`);
+} else {
+  console.log(
+    `No source Harness runtime found at:\n  ${source}\n`
+    + `Bootstrapping the bundled runtime from scratch via npm instead.\n`
+    + `(Set GOBUDDY_HARNESS_RUNTIME to a prepared runtime to copy from.)`,
+  );
+  bootstrapHarnessRuntime(target);
 }
 console.log(`Preset profile plugins: ${Object.keys(PRESET_PLUGINS).join(", ")}`);
 
@@ -98,72 +107,6 @@ function isRuntimeUpToDate(runtimeDir) {
     return false;
   }
   return true;
-}
-
-/**
- * Install the preset plugins into the runtime's node_modules so DSH can
- * resolve them as profile bundles from the installation anchor. Uses npm
- * with --no-save so the runtime's own manifest stays untouched (the preset
- * list lives in gobuddy-harness-runtime.json instead).
- */
-function installPresetPlugins(runtimeDir) {
-  const specs = Object.entries(PRESET_PLUGINS).map(([name, version]) => `${name}@${version}`);
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(npmCommand, [
-    "install",
-    "--no-save",
-    "--no-audit",
-    "--no-fund",
-    "--package-lock=false",
-    "--legacy-peer-deps",
-    ...specs,
-  ], {
-    cwd: runtimeDir,
-    encoding: "utf8",
-    windowsHide: true,
-    shell: process.platform === "win32",
-  });
-  if (result.error) {
-    throw new Error(`Failed to install preset plugins into ${runtimeDir}: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new Error(`npm install of preset plugins failed (exit ${result.status}):\n${result.stderr || result.stdout}`);
-  }
-  // npm install also materializes the runtime manifest's own dependencies,
-  // which include `gobuddy-electron: file:<repo>` — that creates a junction
-  // pointing back at the whole repository. Drop it so the bundled runtime
-  // never carries the project (electron-builder would follow the junction
-  // and copy gigabytes of repo content into the installer).
-  const selfLink = path.join(runtimeDir, "node_modules", "gobuddy-electron");
-  if (fs.existsSync(selfLink)) {
-    fs.rmSync(selfLink, { recursive: true, force: true });
-  }
-  // Verify every preset plugin actually landed in the runtime's node_modules.
-  for (const name of Object.keys(PRESET_PLUGINS)) {
-    const pkgJson = path.join(runtimeDir, "node_modules", name, "package.json");
-    if (!fs.existsSync(pkgJson)) {
-      throw new Error(`Preset plugin ${name} missing after install: ${pkgJson}`);
-    }
-  }
-}
-
-/**
- * Record the preset plugin list next to the runtime manifest so the app can
- * seed new profiles with the matching bundle declarations at first run.
- */
-function writeRuntimeManifest(runtimeDir) {
-  const manifestPath = path.join(runtimeDir, "gobuddy-harness-runtime.json");
-  let manifest = {};
-  if (fs.existsSync(manifestPath)) {
-    try {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    } catch {
-      manifest = {};
-    }
-  }
-  manifest.presetPlugins = Object.keys(PRESET_PLUGINS);
-  manifest.presetPluginsUpdatedAt = new Date().toISOString();
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 }
 
 function assertInsideVendor(targetPath) {

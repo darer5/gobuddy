@@ -27,3 +27,6 @@ Thumbs.db
 # Harness local state
 home/
 HarnessHome/
+
+# Session / toolkit temp state
+.dsh-vision-toolkit/

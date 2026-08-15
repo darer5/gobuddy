@@ -127,34 +127,63 @@ export class HarnessRuntimeManager {
     }
   }
 
-  /** PID listening on our host:port, or null. Uses netstat, which ships with Windows. */
+  /**
+   * PID listening on our host:port, or null. Uses netstat on Windows and
+   * lsof on macOS/Linux (both ship with the OS).
+   */
   discoverExternalPid() {
     try {
-      const result = spawnSync("netstat", ["-ano"], { encoding: "utf8", windowsHide: true });
-      if (result.status !== 0 || !result.stdout) {
-        return null;
+      if (process.platform === "win32") {
+        return this.discoverExternalPidWin32();
       }
-      const port = String(this.port);
-      const listening = /LISTENING\s+(\d+)$/im;
-      for (const line of result.stdout.split(/\r?\n/)) {
-        if (!/LISTENING/i.test(line)) {
-          continue;
-        }
-        if (!new RegExp(`(?:127\\.0\\.0\\.1|\\[::1\\]|0\\.0\\.0\\.0|\\[::\\]):${port}\\s`).test(line)) {
-          continue;
-        }
-        const match = listening.exec(line);
-        if (match) {
-          const pid = Number(match[1]);
-          if (pid > 0) {
-            return pid;
-          }
-        }
-      }
-      return null;
+      return this.discoverExternalPidPosix();
     } catch {
       return null;
     }
+  }
+
+  discoverExternalPidWin32() {
+    const result = spawnSync("netstat", ["-ano"], { encoding: "utf8", windowsHide: true });
+    if (result.status !== 0 || !result.stdout) {
+      return null;
+    }
+    const port = String(this.port);
+    const listening = /LISTENING\s+(\d+)$/im;
+    for (const line of result.stdout.split(/\r?\n/)) {
+      if (!/LISTENING/i.test(line)) {
+        continue;
+      }
+      if (!new RegExp(`(?:127\\.0\\.0\\.1|\\[::1\\]|0\\.0\\.0\\.0|\\[::\\]):${port}\\s`).test(line)) {
+        continue;
+      }
+      const match = listening.exec(line);
+      if (match) {
+        const pid = Number(match[1]);
+        if (pid > 0) {
+          return pid;
+        }
+      }
+    }
+    return null;
+  }
+
+  discoverExternalPidPosix() {
+    const result = spawnSync("lsof", ["-nP", `-iTCP:${this.port}`, "-sTCP:LISTEN"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (result.status !== 0 || !result.stdout) {
+      return null;
+    }
+    // lsof columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const columns = line.trim().split(/\s+/);
+      const pid = Number(columns[1]);
+      if (pid > 0) {
+        return pid;
+      }
+    }
+    return null;
   }
 
   /**
@@ -254,7 +283,7 @@ export class HarnessRuntimeManager {
     this.runtimePath = this.writableRuntimePath;
     fs.mkdirSync(this.runtimePath, { recursive: true });
 
-    await runCommand("npm.cmd", [
+    await runCommand(process.platform === "win32" ? "npm.cmd" : "npm", [
       "install",
       "--prefix",
       this.runtimePath,

@@ -1,6 +1,6 @@
 {
   "name": "gobuddy-electron",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "GoBuddy - Windows desktop productivity assistant with screenshots and local AI knowledge agent.",
   "author": "Darerd <yuhuidarer@gmail.com>",
   "private": true,
@@ -16,7 +16,9 @@
     "prepare:node-runtime": "node scripts/prepare-node-runtime.mjs",
     "prepare:runtime-assets": "npm run prepare:harness-runtime && npm run prepare:node-runtime",
     "pack:win": "npm run build && npm run prepare:runtime-assets && electron-builder --win --dir",
-    "dist:win": "npm run build && npm run prepare:runtime-assets && electron-builder --win"
+    "dist:win": "npm run build && npm run prepare:runtime-assets && electron-builder --win",
+    "pack:mac": "npm run build && npm run prepare:runtime-assets && electron-builder --mac --x64 --dir",
+    "dist:mac": "npm run build && npm run prepare:runtime-assets && electron-builder --mac --x64"
   },
   "dependencies": {
     "@fluentui/react-icons": "^2.0.334",
@@ -69,6 +71,20 @@
       ],
       "artifactName": "GoBuddy-${version}-Setup.${ext}",
       "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "GoBuddy-${version}-mac-x64.${ext}",
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "identity": null
     },
     "nsis": {
       "oneClick": false,

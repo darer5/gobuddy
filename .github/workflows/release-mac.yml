@@ -1,0 +1,57 @@
+name: Release Intel macOS DMG
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-mac-intel:
+    name: Build GoBuddy Intel x64 DMG
+    # Intel (x64) macOS 15 build machine. macos-13 was retired in Dec 2025;
+    # this image is its x64 replacement. If the label is ever unavailable,
+    # fall back to `macos-14` + setup-node `architecture: x64` (electron-builder
+    # can cross-build x64 macOS targets on an arm64 host).
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (x64)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          architecture: x64
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Prepare runtime assets (bootstrap Harness runtime + darwin-x64 node)
+        run: npm run prepare:runtime-assets
+        env:
+          # No Apple Developer identity: build an unsigned DMG.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Build Intel x64 DMG
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Publish DMG to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v$(node -p "require('./package.json').version")"
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+          gh release upload "$TAG" release/GoBuddy-*.dmg --clobber
+          echo "Published GoBuddy DMG to release $TAG"

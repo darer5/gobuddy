@@ -205,7 +205,9 @@ async function loadHarnessClientInMainWindow(settings) {
 }
 
 function createTray() {
-  const iconPath = path.join(process.cwd(), "public", "favicon.ico");
+  // macOS cannot render .ico files; use the PNG tray icon there.
+  const iconFileName = process.platform === "darwin" ? "tray-icon.png" : "favicon.ico";
+  const iconPath = path.join(process.cwd(), "public", iconFileName);
   const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip("GoBuddy");
