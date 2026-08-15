@@ -178,6 +178,72 @@ export class HarnessRuntimeManager {
     return true;
   }
 
+  /**
+   * Seed the web profile with the preset plugin bundles carried by the
+   * bundled runtime. The plugins themselves live in the runtime's
+   * node_modules (installed at build time by prepare-harness-runtime.mjs),
+   * so a profile only needs to declare them in `dsh.profile.bundles` — DSH
+   * resolves bundles from the installation anchor first, and the client half
+   * resolves from the harness process's own node_modules. This makes every
+   * fresh install come with the preset plugins out of the box, with no
+   * network or pnpm involved. Existing profiles are only ever appended to
+   * (never have bundles removed), so user changes are preserved.
+   */
+  ensureProfileBundles() {
+    const presets = this.readPresetPlugins();
+    if (presets.length === 0) {
+      return;
+    }
+    const profileDir = path.join(this.homePath, "profiles", "web");
+    const manifestPath = path.join(profileDir, "package.json");
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    } catch {
+      manifest = { name: "dsh-profile-web", private: true, dependencies: {} };
+    }
+    const bundles = Array.isArray(manifest.dsh?.profile?.bundles)
+      ? [...manifest.dsh.profile.bundles]
+      : ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
+    let changed = false;
+    for (const preset of presets) {
+      if (!bundles.includes(preset)) {
+        bundles.push(preset);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    manifest.dsh = {
+      ...(manifest.dsh ?? {}),
+      profile: {
+        ...(manifest.dsh?.profile ?? {}),
+        bundles,
+      },
+    };
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+    this.log("harness.profile.seeded", { presets, bundles });
+  }
+
+  /**
+   * Read the preset plugin list recorded next to the bundled runtime
+   * manifest by prepare-harness-runtime.mjs.
+   * @returns {string[]} preset plugin package names (empty when absent).
+   */
+  readPresetPlugins() {
+    try {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(this.runtimePath, "gobuddy-harness-runtime.json"), "utf8"),
+      );
+      const presets = manifest.presetPlugins;
+      return Array.isArray(presets) ? presets.filter((name) => typeof name === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
   async install() {
     this.runtimePath = this.resolveRuntimePath();
     if (this.isInstalled()) {
@@ -234,6 +300,7 @@ export class HarnessRuntimeManager {
     this.setStatus("starting", "正在启动 DeepSeek Harness runtime...");
     this.runtimePath = this.resolveRuntimePath();
     fs.mkdirSync(this.homePath, { recursive: true });
+    this.ensureProfileBundles();
     this.port = await findAvailablePort(3080);
     this.terminating = false;
     this.autoRestartCount = 0;

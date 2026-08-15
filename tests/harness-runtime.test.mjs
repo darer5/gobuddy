@@ -300,3 +300,100 @@ function isProcessAlive(pid) {
     return false;
   }
 }
+
+test("ensureProfileBundles seeds preset plugins into a fresh profile", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["dsh-better-sidebar", "dshmarket", "dsh-global-rules"] }),
+    "utf8",
+  );
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileBundles();
+
+  const manifestPath = path.join(dir, "HarnessHomeManaged", "profiles", "web", "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.deepEqual(manifest.dsh.profile.bundles, [
+    "@deepseek-ai/dsh-base",
+    "@deepseek-ai/dsh-web-app",
+    "dsh-better-sidebar",
+    "dshmarket",
+    "dsh-global-rules",
+  ]);
+});
+
+test("ensureProfileBundles appends only missing presets, preserving user bundles", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["dsh-better-sidebar", "dshmarket"] }),
+    "utf8",
+  );
+
+  const profileDir = path.join(dir, "HarnessHomeManaged", "profiles", "web");
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, "package.json"),
+    JSON.stringify({
+      name: "dsh-profile-web",
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "my-custom-plugin", "dshmarket"] } },
+    }),
+    "utf8",
+  );
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileBundles();
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, "package.json"), "utf8"));
+  assert.deepEqual(manifest.dsh.profile.bundles, [
+    "@deepseek-ai/dsh-base",
+    "my-custom-plugin",
+    "dshmarket",
+    "dsh-better-sidebar",
+  ]);
+});
+
+test("ensureProfileBundles is a no-op without preset plugins", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(path.join(runtimePath, "gobuddy-harness-runtime.json"), JSON.stringify({}), "utf8");
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileBundles();
+
+  assert.equal(fs.existsSync(path.join(dir, "HarnessHomeManaged", "profiles", "web", "package.json")), false);
+});
+
+test("readPresetPlugins returns empty when manifest is missing or malformed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  assert.deepEqual(runtime.readPresetPlugins(), []);
+});
