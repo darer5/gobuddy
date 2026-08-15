@@ -30,7 +30,6 @@ if (squirrelStartup) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.GOBUDDY_DEV_SERVER_URL;
-const harnessClientUrl = "http://127.0.0.1:3080/";
 
 let mainWindow;
 let tray;
@@ -40,6 +39,7 @@ let screenshotController;
 let knowledgeService;
 let harnessRuntime;
 let chatAgent;
+let loadedHarnessUrl = null;
 
 app.setName("GoBuddy");
 
@@ -165,7 +165,8 @@ function createMainWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(harnessClientUrl)) {
+    const harnessClientUrl = harnessRuntime?.getClientUrl?.();
+    if (harnessClientUrl && url.startsWith(harnessClientUrl)) {
       return { action: "allow" };
     }
     shell.openExternal(url).catch((error) => database?.logEvent("window.open.external.failed", false, error.message));
@@ -185,10 +186,15 @@ async function loadHarnessClientInMainWindow(settings) {
 
     await loadHarnessSplash(mainWindow, "正在启动 DeepSeek Harness...");
     await harnessRuntime.start();
-    await waitForHarnessReady();
+    const harnessClientUrl = harnessRuntime.getClientUrl();
+    await waitForHarnessReady(harnessClientUrl, harnessRuntime);
     if (mainWindow && !mainWindow.isDestroyed()) {
-      await mainWindow.loadURL(harnessClientUrl);
-      appendMainLog("window.loadHarness.loaded", { url: harnessClientUrl });
+      // The port may have changed while waiting (auto-restart after a plugin
+      // crash), so load whatever URL the runtime currently serves.
+      const finalUrl = harnessRuntime.getClientUrl();
+      loadedHarnessUrl = finalUrl;
+      await mainWindow.loadURL(finalUrl);
+      appendMainLog("window.loadHarness.loaded", { url: finalUrl });
     }
   } catch (error) {
     appendMainLog("window.loadHarness.failed", { message: error.message, stack: error.stack });
@@ -304,7 +310,31 @@ function showMainWindow() {
 }
 
 function sendEvent(event, payload) {
+  if (event === "chat:status" && payload?.state === "running") {
+    handleHarnessRunningStatus(payload);
+  }
   sendToWindow(mainWindow, event, payload);
+}
+
+/**
+ * When the harness ends up serving a different URL than the one loaded in the
+ * main window (a plugin restart adopted on the same port keeps the URL; an
+ * auto-restart after a plugin crash may move to a fresh port), reload the
+ * window so the client never stays pointed at a dead harness.
+ */
+function handleHarnessRunningStatus(status) {
+  if (!mainWindow || mainWindow.isDestroyed() || !loadedHarnessUrl) {
+    return;
+  }
+  const url = harnessRuntime?.getClientUrl?.();
+  if (!url || url === loadedHarnessUrl) {
+    return;
+  }
+  appendMainLog("window.loadHarness.relocated", { from: loadedHarnessUrl, to: url });
+  loadedHarnessUrl = url;
+  mainWindow.loadURL(url).catch((error) => {
+    appendMainLog("window.loadHarness.relocated.failed", { message: error.message });
+  });
 }
 
 function sendToWindow(window, event, payload) {
@@ -353,15 +383,30 @@ async function loadWindow(window, hash) {
   await window.loadFile(path.join(process.cwd(), "dist", "renderer", "index.html"), { hash: hash.replace("#", "") });
 }
 
-async function waitForHarnessReady({ timeoutMs = 45000, intervalMs = 500 } = {}) {
+/**
+ * Startup detection, deliberately isolated from plugin internals: it only
+ * asks whether the harness web client responds on the runtime's current URL.
+ * A plugin's one-click restart kills the managed process and boots a detached
+ * replacement, so a dead managed process is NOT treated as failure while the
+ * runtime is still recovering — only a runtime-level error (recovery and
+ * auto-restart budget exhausted) aborts early.
+ */
+async function waitForHarnessReady(harnessClientUrl, runtime, { timeoutMs = 45000, intervalMs = 500 } = {}) {
   const startedAt = Date.now();
   let lastError = new Error("Harness is not ready");
 
   while (Date.now() - startedAt < timeoutMs) {
+    if (runtime) {
+      const status = runtime.getStatus();
+      if (status.state === "error") {
+        throw new Error(status.message || "Harness 启动失败");
+      }
+    }
+    const url = runtime?.getClientUrl?.() ?? harnessClientUrl;
     try {
-      const response = await fetch(harnessClientUrl);
+      const response = await fetch(url);
       if (response.ok) {
-        return true;
+        return url;
       }
       lastError = new Error(`Harness returned HTTP ${response.status}`);
     } catch (error) {

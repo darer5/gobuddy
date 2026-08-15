@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 
 export const defaultHarnessPackages = {
@@ -27,17 +28,46 @@ export const defaultHarnessPackages = {
   cordisGroup: "@deepseek-ai/cordis-plugin-group@^1.0.1",
 };
 
+/** How long to watch for an externally-restarted harness (plugin one-click restart) before recovering on our own. */
+const EXTERNAL_RESTART_GRACE_MS = 8000;
+/** Poll interval while waiting for an external restart to serve the web client. */
+const EXTERNAL_RESTART_POLL_MS = 300;
+/** Maximum automatic re-spawns after an unexpected exit within the restart window. */
+const AUTO_RESTART_MAX = 2;
+/** Restart window for the auto-restart budget. */
+const AUTO_RESTART_WINDOW_MS = 30000;
+/** HTTP probe timeout when deciding whether a port is served by a Harness web client. */
+const PROBE_TIMEOUT_MS = 1500;
+
 export class HarnessRuntimeManager {
-  constructor({ userDataPath, sendEvent, settingsStore, packages = defaultHarnessPackages, runtimeDirName = "HarnessRuntime", bundledRuntimePath = "" }) {
+  constructor({
+    userDataPath,
+    sendEvent,
+    settingsStore,
+    packages = defaultHarnessPackages,
+    runtimeDirName = "HarnessRuntime",
+    homeDirName = "HarnessHomeManaged",
+    bundledRuntimePath = "",
+    externalRestartGraceMs = EXTERNAL_RESTART_GRACE_MS,
+    externalRestartPollMs = EXTERNAL_RESTART_POLL_MS,
+    autoRestartMax = AUTO_RESTART_MAX,
+    autoRestartWindowMs = AUTO_RESTART_WINDOW_MS,
+  }) {
     this.userDataPath = userDataPath;
     this.writableRuntimePath = path.join(userDataPath, runtimeDirName);
     this.bundledRuntimePath = bundledRuntimePath;
     this.runtimePath = this.resolveRuntimePath();
-    this.homePath = path.join(userDataPath, "HarnessHome");
+    this.homePath = path.join(userDataPath, homeDirName);
     this.sendEvent = sendEvent;
     this.settingsStore = settingsStore;
     this.packages = packages;
     this.logPath = path.join(userDataPath, "gobuddy-main.log");
+    this.host = "127.0.0.1";
+    this.port = 3080;
+    this.externalRestartGraceMs = externalRestartGraceMs;
+    this.externalRestartPollMs = externalRestartPollMs;
+    this.autoRestartMax = autoRestartMax;
+    this.autoRestartWindowMs = autoRestartWindowMs;
     this.status = {
       state: "not-installed",
       message: "DeepSeek Harness runtime 尚未安装。",
@@ -47,17 +77,105 @@ export class HarnessRuntimeManager {
       version: packages.dsh,
     };
     this.process = null;
+    this.externalPid = null;
     this.silentProcessExit = false;
+    this.terminating = false;
+    this.autoRestartCount = 0;
+    this.autoRestartWindowStart = 0;
   }
 
   getStatus() {
     const installed = this.isInstalled();
+    const running = this.isRunning();
     return {
       ...this.status,
       installed,
-      running: Boolean(this.process && !this.process.killed),
-      state: this.process && !this.process.killed ? "running" : installed && this.status.state === "not-installed" ? "available" : this.status.state,
+      running,
+      state: running ? "running" : installed && this.status.state === "not-installed" ? "available" : this.status.state,
     };
+  }
+
+  getClientUrl() {
+    return `http://${this.host}:${this.port}/`;
+  }
+
+  isRunning() {
+    return Boolean((this.process && !this.process.killed) || this.externalPid);
+  }
+
+  /**
+   * True when something on our host:port serves the DeepSeek Harness web
+   * client. The web root embeds a `window.__DSH_BOOT__` bootstrap marker, so
+   * this never mistakes an unrelated local web server for the harness.
+   */
+  async isServedByHarness() {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+      try {
+        const response = await fetch(this.getClientUrl(), { signal: controller.signal });
+        if (!response.ok) {
+          return false;
+        }
+        const body = await response.text();
+        return body.includes("__DSH_BOOT__");
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  /** PID listening on our host:port, or null. Uses netstat, which ships with Windows. */
+  discoverExternalPid() {
+    try {
+      const result = spawnSync("netstat", ["-ano"], { encoding: "utf8", windowsHide: true });
+      if (result.status !== 0 || !result.stdout) {
+        return null;
+      }
+      const port = String(this.port);
+      const listening = /LISTENING\s+(\d+)$/im;
+      for (const line of result.stdout.split(/\r?\n/)) {
+        if (!/LISTENING/i.test(line)) {
+          continue;
+        }
+        if (!new RegExp(`(?:127\\.0\\.0\\.1|\\[::1\\]|0\\.0\\.0\\.0|\\[::\\]):${port}\\s`).test(line)) {
+          continue;
+        }
+        const match = listening.exec(line);
+        if (match) {
+          const pid = Number(match[1]);
+          if (pid > 0) {
+            return pid;
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Adopt a harness that is already serving our web client but was started
+   * outside this manager — e.g. the detached replacement process spawned by a
+   * plugin's one-click restart. Without adoption GoBuddy would lose track of
+   * the restarted harness and could not stop it or report its state.
+   * @returns {Promise<boolean>} true when an external harness was adopted.
+   */
+  async adoptExternalHarness() {
+    if (this.process && !this.process.killed) {
+      return false;
+    }
+    if (!(await this.isServedByHarness())) {
+      return false;
+    }
+    const pid = this.discoverExternalPid();
+    this.externalPid = pid;
+    this.log("harness.external.adopted", { pid, url: this.getClientUrl() });
+    this.setStatus("running", "DeepSeek Harness runtime 正在运行（已接管外部重启的进程）。");
+    return true;
   }
 
   async install() {
@@ -103,6 +221,12 @@ export class HarnessRuntimeManager {
       return this.setStatus("running", "DeepSeek Harness runtime 正在运行。");
     }
 
+    // A plugin restart leaves a detached harness serving our port. Adopt it
+    // instead of spawning a second instance on another port.
+    if (await this.adoptExternalHarness()) {
+      return this.status;
+    }
+
     if (!this.isInstalled()) {
       await this.install();
     }
@@ -110,6 +234,15 @@ export class HarnessRuntimeManager {
     this.setStatus("starting", "正在启动 DeepSeek Harness runtime...");
     this.runtimePath = this.resolveRuntimePath();
     fs.mkdirSync(this.homePath, { recursive: true });
+    this.port = await findAvailablePort(3080);
+    this.terminating = false;
+    this.autoRestartCount = 0;
+    this.autoRestartWindowStart = 0;
+    this.spawnProcess();
+    return this.setStatus("running", "DeepSeek Harness runtime 正在运行。");
+  }
+
+  spawnProcess() {
     const binPath = path.join(this.runtimePath, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
     const command = resolveNodeCommand();
     const aiSettings = this.settingsStore?.load().ai ?? {};
@@ -118,10 +251,12 @@ export class HarnessRuntimeManager {
       binPath,
       cwd: this.runtimePath,
       homePath: this.homePath,
+      profilePath: path.join(this.homePath, "profiles", "web"),
+      url: this.getClientUrl(),
       hasDeepSeekApiKey: Boolean(aiSettings.deepseekApiKey || process.env.DEEPSEEK_API_KEY),
       model: aiSettings.model || process.env.DSH_MODEL || "deepseek-chat",
     });
-    this.process = spawn(command, [binPath, "web", "--host", "127.0.0.1", "--port", "3080"], {
+    this.process = spawn(command, [binPath, "web", "--host", this.host, "--port", String(this.port)], {
       cwd: this.runtimePath,
       env: {
         ...process.env,
@@ -129,6 +264,7 @@ export class HarnessRuntimeManager {
         DEEPSEEK_BASE_URL: aiSettings.deepseekBaseUrl || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
         DSH_MODEL: aiSettings.model || process.env.DSH_MODEL || "deepseek-chat",
         DSH_HOME: this.homePath,
+        DSH_TELEMETRY_DISABLED: process.env.DSH_TELEMETRY_DISABLED || "1",
       },
       windowsHide: true,
     });
@@ -137,7 +273,7 @@ export class HarnessRuntimeManager {
     this.process.once("error", (error) => {
       this.process = null;
       this.log("harness.process.error", { message: error.message, stack: error.stack });
-      if (this.silentProcessExit) {
+      if (this.silentProcessExit || this.terminating) {
         return;
       }
       this.setStatus("error", `DeepSeek Harness runtime 启动失败：${error.message}`);
@@ -145,16 +281,82 @@ export class HarnessRuntimeManager {
     this.process.once("exit", (code) => {
       this.process = null;
       this.log("harness.process.exit", { code, silent: this.silentProcessExit });
-      if (this.silentProcessExit) {
+      if (this.silentProcessExit || this.terminating) {
         return;
       }
-      this.setStatus(code === 0 ? "available" : "error", code === 0 ? "DeepSeek Harness runtime 已停止。" : `DeepSeek Harness runtime 异常退出：${code}`);
+      void this.handleProcessExit(code);
     });
+  }
 
-    return this.setStatus("running", "DeepSeek Harness runtime 正在运行。");
+  /**
+   * Recovery after an unexpected harness exit. The startup detection is
+   * deliberately decoupled from plugin internals: it only watches whether the
+   * web client is served. A plugin's one-click restart kills this process and
+   * boots a detached replacement — we wait a short grace window for that
+   * replacement to serve the same URL and adopt it. If nothing comes up (e.g.
+   * a plugin exception crashed the restarted harness), we re-spawn the harness
+   * ourselves, bounded, so a plugin failure can never permanently break the
+   * client restart.
+   */
+  async handleProcessExit(code) {
+    this.setStatus("restarting", "DeepSeek Harness runtime 已退出，正在恢复服务...", { notify: false });
+
+    if (await this.waitForExternalRestart()) {
+      return;
+    }
+
+    if (await this.tryAutoRestart()) {
+      return;
+    }
+
+    this.log("harness.process.exit.unrecovered", { code });
+    this.setStatus(
+      "error",
+      `DeepSeek Harness runtime 异常退出（${code}）。若由插件异常引起，请禁用最近安装的插件后重试。`,
+    );
+  }
+
+  async waitForExternalRestart() {
+    const deadline = Date.now() + this.externalRestartGraceMs;
+    while (Date.now() < deadline) {
+      if (this.terminating) {
+        return false;
+      }
+      if (await this.adoptExternalHarness()) {
+        return true;
+      }
+      await sleep(this.externalRestartPollMs);
+    }
+    return false;
+  }
+
+  async tryAutoRestart() {
+    const now = Date.now();
+    if (now - this.autoRestartWindowStart > this.autoRestartWindowMs) {
+      this.autoRestartWindowStart = now;
+      this.autoRestartCount = 0;
+    }
+    if (this.autoRestartCount >= this.autoRestartMax) {
+      return false;
+    }
+    this.autoRestartCount += 1;
+    this.log("harness.autoRestart", { attempt: this.autoRestartCount });
+    this.setStatus(
+      "starting",
+      `DeepSeek Harness runtime 异常退出，正在自动重启（${this.autoRestartCount}/${this.autoRestartMax}）...`,
+    );
+    try {
+      this.port = await findAvailablePort(this.port);
+      this.spawnProcess();
+      return true;
+    } catch (error) {
+      this.log("harness.autoRestart.spawnError", { message: error.message });
+      return false;
+    }
   }
 
   stop({ notify = true } = {}) {
+    this.terminating = true;
     if (this.process && !this.process.killed) {
       this.silentProcessExit = !notify;
       if (process.platform === "win32") {
@@ -164,6 +366,18 @@ export class HarnessRuntimeManager {
       }
     }
     this.process = null;
+    if (this.externalPid) {
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/pid", String(this.externalPid), "/t", "/f"], { windowsHide: true });
+      } else {
+        try {
+          process.kill(this.externalPid, "SIGTERM");
+        } catch {
+          // Already gone.
+        }
+      }
+      this.externalPid = null;
+    }
     return this.setStatus(this.isInstalled() ? "available" : "not-installed", "DeepSeek Harness runtime 已停止。", { notify });
   }
 
@@ -190,7 +404,7 @@ export class HarnessRuntimeManager {
       state,
       message,
       installed: this.isInstalled(),
-      running: Boolean(this.process && !this.process.killed),
+      running: this.isRunning(),
       updatedAt: new Date().toISOString(),
     };
     if (notify) {
@@ -240,4 +454,28 @@ function resolveNodeCommand() {
   }
 
   return process.env.GOBUDDY_NODE_PATH || process.env.npm_node_execpath || "node";
+}
+
+function findAvailablePort(preferredPort) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", (error) => {
+      if (error.code === "EADDRINUSE") {
+        findAvailablePort(0).then(resolve, reject);
+        return;
+      }
+      reject(error);
+    });
+    server.listen({ host: "127.0.0.1", port: preferredPort }, () => {
+      const address = server.address();
+      server.close(() => {
+        resolve(typeof address === "object" && address ? address.port : preferredPort);
+      });
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
