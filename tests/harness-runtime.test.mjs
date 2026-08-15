@@ -54,7 +54,7 @@ test("harness runtime starts with an isolated managed DSH home", async () => {
   fs.mkdirSync(path.dirname(binPath), { recursive: true });
   fs.writeFileSync(
     binPath,
-    `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.DSH_HOME ?? "", "utf8");\nsetInterval(() => {}, 1000);\n`,
+    `const fs = require("node:fs");\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.DSH_HOME ?? "", "utf8");\nsetInterval(() => {}, 1000);\n`,
     "utf8",
   );
 
@@ -64,6 +64,7 @@ test("harness runtime starts with an isolated managed DSH home", async () => {
   });
 
   await runtime.start();
+  await waitForFile(envPath);
   runtime.stop({ notify: false });
   await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -78,7 +79,7 @@ test("harness runtime avoids an occupied default web port", async () => {
   fs.mkdirSync(path.dirname(binPath), { recursive: true });
   fs.writeFileSync(
     binPath,
-    `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)), "utf8");\nsetInterval(() => {}, 1000);\n`,
+    `const fs = require("node:fs");\nfs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)), "utf8");\nsetInterval(() => {}, 1000);\n`,
     "utf8",
   );
 
@@ -175,7 +176,7 @@ test("harness runtime auto-restarts after a crash and reports error when the bud
   fs.mkdirSync(path.dirname(binPath), { recursive: true });
   fs.writeFileSync(
     binPath,
-    `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(spawnsPath)}, "spawn\\n", "utf8");\nprocess.exit(1);\n`,
+    `const fs = require("node:fs");\nfs.appendFileSync(${JSON.stringify(spawnsPath)}, "spawn\\n", "utf8");\nprocess.exit(1);\n`,
     "utf8",
   );
 
@@ -250,8 +251,8 @@ function writeServingHarnessScript(dir) {
   const externalPidPath = JSON.stringify(path.join(dir, "external-pid.txt"));
   fs.writeFileSync(
     binPath,
-    `import http from "node:http";
-import fs from "node:fs";
+    `const http = require("node:http");
+const fs = require("node:fs");
 const portArg = process.argv[process.argv.indexOf("--port") + 1];
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/html" });
