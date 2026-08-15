@@ -27,16 +27,10 @@ function bootstrapKnowledgeSurface() {
 
   const labels = {
     all: "全部",
-    text: "文本",
-    link: "链接",
-    image: "图片",
     screenshot: "截图",
   };
 
   const typeLabels = {
-    text: "文本",
-    link: "链接",
-    image: "图片",
     screenshot: "截图",
   };
 
@@ -308,12 +302,12 @@ function bootstrapKnowledgeSurface() {
 
   const panel = document.createElement("section");
   panel.className = "gbk-panel";
-  panel.setAttribute("aria-label", "GoBuddy 剪贴板知识库");
+  panel.setAttribute("aria-label", "GoBuddy 截图知识库");
   panel.innerHTML = `
     <header class="gbk-header">
       <div class="gbk-title">
-        <h1>剪贴板</h1>
-        <p>最近 30 条剪贴板与截图内容，可直接作为对话知识库。</p>
+        <h1>知识库</h1>
+        <p>最近 30 条截图内容，可直接作为对话知识库。</p>
       </div>
       <div class="gbk-actions">
         <button class="gbk-button" data-gbk-action="refresh">刷新</button>
@@ -324,7 +318,7 @@ function bootstrapKnowledgeSurface() {
     <main class="gbk-grid"></main>
     <footer class="gbk-chat">
       <div class="gbk-chat-box">
-        <textarea class="gbk-input" placeholder="问问这些剪贴板和截图：比如“帮我总结最近复制的资料”"></textarea>
+        <textarea class="gbk-input" placeholder="问问这些截图：比如“帮我总结最近的截图”"></textarea>
         <button class="gbk-send" title="发送到 Harness">↑</button>
       </div>
     </footer>
@@ -371,7 +365,7 @@ function bootstrapKnowledgeSurface() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "gbk-sidebar-button";
-    button.innerHTML = `<span class="gbk-sidebar-icon">▦</span><span>剪贴板</span>`;
+    button.innerHTML = `<span class="gbk-sidebar-icon">▦</span><span>知识库</span>`;
     button.addEventListener("click", () => setOpen(true));
     newSessionButton.insertAdjacentElement("afterend", button);
     updatePanelLeft();
@@ -427,7 +421,7 @@ function bootstrapKnowledgeSurface() {
     });
 
     if (state.loading) {
-      grid.innerHTML = `<div class="gbk-empty">正在读取最近剪贴板和截图...</div>`;
+      grid.innerHTML = `<div class="gbk-empty">正在读取最近截图...</div>`;
       return;
     }
     if (state.error) {
@@ -437,7 +431,7 @@ function bootstrapKnowledgeSurface() {
 
     const items = filteredItems();
     if (items.length === 0) {
-      grid.innerHTML = `<div class="gbk-empty">还没有可整理的剪贴板或截图。复制文本、链接、图片，或完成截图后再回来看看。</div>`;
+      grid.innerHTML = `<div class="gbk-empty">还没有可整理的截图。完成截图后再回来看看。</div>`;
       return;
     }
 
@@ -550,16 +544,16 @@ function bootstrapKnowledgeSurface() {
 
   function buildKnowledgePrompt(question, items) {
     const context = items.map((item, index) => {
-      const content = item.sensitive ? "敏感剪贴板内容已隐藏，仅可参考标题和元数据。" : previewText(item, 900);
+      const content = previewText(item, 900);
       const path = item.filePath ? `\n路径：${item.filePath}` : "";
       return `#${index + 1} [${typeLabels[item.type] || item.type}] ${item.title || "未命名"}\n时间：${formatTime(item.createdAt, true)}${path}\n内容：${content}`;
     }).join("\n\n");
-    return `请基于下面的 GoBuddy 剪贴板与截图知识库回答用户问题。若知识库不足以回答，请明确说明不足，不要编造。\n\n用户问题：${question}\n\nGoBuddy 最近知识库（最多 30 条）：\n${context}`;
+    return `请基于下面的 GoBuddy 截图知识库回答用户问题。若知识库不足以回答，请明确说明不足，不要编造。\n\n用户问题：${question}\n\nGoBuddy 最近知识库（最多 30 条）：\n${context}`;
   }
 
   function previewText(item, limit = 260) {
     const metadata = item.metadata || {};
-    const base = item.sensitive ? "敏感内容已隐藏" : (item.content || item.filePath || "");
+    const base = item.content || item.filePath || "";
     const dimensions = metadata.width && metadata.height ? `图片尺寸：${metadata.width}x${metadata.height}` : "";
     const text = [base, dimensions, item.note, ...(item.tags || [])].filter(Boolean).join("\n");
     return text.length > limit ? `${text.slice(0, limit)}...` : text;
@@ -609,11 +603,6 @@ function bootstrapKnowledgeSurface() {
   });
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener("resize", updatePanelLeft);
-  window.goBuddy?.on?.("clipboard:changed", () => {
-    if (state.open) {
-      loadItems();
-    }
-  });
 
   ensureSidebarButton();
   return {

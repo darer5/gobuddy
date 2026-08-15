@@ -113,143 +113,6 @@ button {
   color: #68746d;
 }
 
-.clipboard-layout {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  min-height: 0;
-  border: 1px solid #dde5dd;
-  border-radius: 10px;
-  background: #ffffff;
-  overflow: hidden;
-}
-
-.clipboard-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px;
-  border-bottom: 1px solid #edf1ed;
-}
-
-.type-tabs {
-  display: flex;
-  gap: 6px;
-}
-
-.type-tabs button {
-  min-width: 68px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: transparent;
-  color: #53615a;
-  font-weight: 650;
-}
-
-.type-tabs button.active,
-.type-tabs button:hover {
-  background: #e8f5ed;
-  color: #157a49;
-}
-
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: min(360px, 44vw);
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid #d9e2db;
-  border-radius: 8px;
-  background: #fbfcfb;
-}
-
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-}
-
-.clipboard-body {
-  display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(340px, 1fr);
-  min-height: 0;
-}
-
-.item-list {
-  min-height: 0;
-  padding: 14px;
-  overflow: auto;
-  border-right: 1px solid #edf1ed;
-}
-
-.clipboard-row {
-  display: grid;
-  grid-template-columns: 42px 1fr 32px;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 66px;
-  margin-bottom: 8px;
-  padding: 10px;
-  border: 1px solid #e6ece7;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #1f2521;
-  text-align: left;
-}
-
-.clipboard-row.active,
-.clipboard-row:hover {
-  border-color: #bfe4ca;
-  background: #f3fbf5;
-}
-
-.type-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  background: #e9f5ed;
-  color: #237e4e;
-}
-
-.type-icon.image {
-  background: #edf4ff;
-  color: #326fc4;
-}
-
-.type-icon.link {
-  background: #fff4e4;
-  color: #a46212;
-}
-
-.row-main {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.row-main strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-main em {
-  color: #6d7972;
-  font-size: 12px;
-  font-style: normal;
-}
-
-.row-pin {
-  display: grid;
-  place-items: center;
-  color: #d59b16;
-}
-
 .preview-panel {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -899,7 +762,6 @@ button {
   color: var(--dsw-label-secondary);
 }
 
-.clipboard-layout,
 .chat-shell,
 .history-shell {
   min-height: 0;
@@ -909,7 +771,6 @@ button {
   background: var(--dsw-bg-platform);
 }
 
-.clipboard-top,
 .chat-toolbar {
   min-height: 56px;
   padding: 10px 22px;
@@ -917,7 +778,6 @@ button {
   background: var(--dsw-bg-platform);
 }
 
-.type-tabs button,
 .chat-toolbar-actions button {
   min-height: 32px;
   border-radius: 8px;
@@ -925,40 +785,23 @@ button {
   background: transparent;
 }
 
-.type-tabs button.active,
-.type-tabs button:hover,
 .chat-toolbar-actions button:hover {
   color: var(--dsw-label-primary);
   background: var(--dsw-bg-active);
 }
 
-.search {
-  border-color: var(--dsw-border-l1);
-  background: var(--dsw-bg-base);
-  color: var(--dsw-label-secondary);
-}
-
-.search input,
 .composer textarea,
 .settings-modal input,
 .settings-modal select {
   color: var(--dsw-label-primary);
 }
 
-.clipboard-body.single {
-  display: block;
-  min-height: 0;
-  overflow: auto;
-}
-
-.item-list,
 .message-list,
 .session-list {
   border: 0;
   padding: 18px 22px;
 }
 
-.clipboard-row,
 .session-row {
   min-height: 58px;
   margin-bottom: 6px;
@@ -968,28 +811,11 @@ button {
   color: var(--dsw-label-primary);
 }
 
-.clipboard-row.active,
-.clipboard-row:hover,
 .session-row:hover {
   border-color: transparent;
   background: var(--dsw-bg-hover);
 }
 
-.type-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--dsw-bg-active);
-  color: var(--dsw-brand-blue);
-}
-
-.type-icon.image,
-.type-icon.link {
-  background: var(--dsw-bg-active);
-  color: var(--dsw-brand-blue);
-}
-
-.row-main em,
 .session-row em,
 .session-row time,
 .chat-toolbar span,

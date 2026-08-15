@@ -18,23 +18,6 @@ export class GoBuddyDatabase {
     const bytes = fs.existsSync(this.dbPath) ? fs.readFileSync(this.dbPath) : undefined;
     this.db = new this.SQL.Database(bytes);
     this.db.run(`
-      CREATE TABLE IF NOT EXISTS clipboard_items (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        file_path TEXT,
-        content_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        source_application TEXT,
-        is_favorite INTEGER NOT NULL DEFAULT 0,
-        is_sensitive INTEGER NOT NULL DEFAULT 0,
-        metadata TEXT NOT NULL DEFAULT '{}'
-      );
-      CREATE INDEX IF NOT EXISTS idx_clipboard_items_created_at ON clipboard_items(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_clipboard_items_type ON clipboard_items(type);
-      CREATE INDEX IF NOT EXISTS idx_clipboard_items_hash ON clipboard_items(content_hash);
-
       CREATE TABLE IF NOT EXISTS screenshot_items (
         id TEXT PRIMARY KEY,
         file_path TEXT NOT NULL,
@@ -87,83 +70,6 @@ export class GoBuddyDatabase {
   persist() {
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     fs.writeFileSync(this.dbPath, Buffer.from(this.db.export()));
-  }
-
-  addClipboardItem(item, limit) {
-    const existing = this.get(
-      "SELECT is_favorite FROM clipboard_items WHERE content_hash = ? LIMIT 1",
-      [item.contentHash],
-    );
-    this.run("DELETE FROM clipboard_items WHERE content_hash = ?", [item.contentHash]);
-    this.run(
-      `INSERT INTO clipboard_items
-        (id, type, title, content, file_path, content_hash, created_at, source_application, is_favorite, is_sensitive, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        item.id,
-        item.type,
-        item.title,
-        item.content,
-        item.filePath ?? null,
-        item.contentHash,
-        item.createdAt,
-        item.sourceApplication ?? null,
-        existing?.is_favorite || item.favorite ? 1 : 0,
-        item.sensitive ? 1 : 0,
-        JSON.stringify(item.metadata ?? {}),
-      ],
-    );
-    this.trimClipboard(limit);
-    this.persist();
-  }
-
-  listClipboard({ type = "all", query = "", limit = 100 } = {}) {
-    const clauses = [];
-    const params = [];
-    if (type && type !== "all") {
-      clauses.push("type = ?");
-      params.push(type);
-    }
-    if (query) {
-      clauses.push("(title LIKE ? OR content LIKE ?)");
-      params.push(`%${query}%`, `%${query}%`);
-    }
-    params.push(limit);
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    return this.all(
-      `SELECT * FROM clipboard_items ${where} ORDER BY is_favorite DESC, created_at DESC LIMIT ?`,
-      params,
-    ).map(mapClipboardRow);
-  }
-
-  findClipboard(id) {
-    const row = this.get("SELECT * FROM clipboard_items WHERE id = ? LIMIT 1", [id]);
-    return row ? mapClipboardRow(row) : null;
-  }
-
-  deleteClipboard(id) {
-    this.run("DELETE FROM clipboard_items WHERE id = ?", [id]);
-    this.persist();
-    return true;
-  }
-
-  favoriteClipboard(id, favorite) {
-    this.run("UPDATE clipboard_items SET is_favorite = ? WHERE id = ?", [favorite ? 1 : 0, id]);
-    this.persist();
-    return true;
-  }
-
-  trimClipboard(limit) {
-    this.run(
-      `DELETE FROM clipboard_items
-       WHERE id IN (
-         SELECT id FROM clipboard_items
-         WHERE is_favorite = 0
-         ORDER BY created_at DESC
-         LIMIT -1 OFFSET ?
-       )`,
-      [limit],
-    );
   }
 
   addScreenshot(item) {
@@ -355,21 +261,6 @@ function resolveSqlJsDistPath() {
   ].filter(Boolean);
 
   return candidates.find((candidate) => fs.existsSync(path.join(candidate, "sql-wasm.wasm"))) ?? candidates.at(-1);
-}
-
-function mapClipboardRow(row) {
-  return {
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    content: row.content,
-    filePath: row.file_path || "",
-    createdAt: row.created_at,
-    sourceApplication: row.source_application || "unknown",
-    favorite: row.is_favorite === 1,
-    sensitive: row.is_sensitive === 1,
-    metadata: JSON.parse(row.metadata || "{}"),
-  };
 }
 
 function mapScreenshotRow(row) {

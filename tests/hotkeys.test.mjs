@@ -7,9 +7,6 @@ test("normalizes Windows style accelerators for Electron", () => {
   assert.equal(normalizeAccelerator("Alt + V"), "Alt+V");
 });
 
-test("rejects duplicate screenshot and clipboard history hotkeys", () => {
-  assert.throws(
-    () => validateHotkeySet({ screenshot: "Ctrl+Shift+S", clipboardHistory: "Ctrl+Shift+S" }),
-    /不能相同/,
-  );
+test("validates the screenshot hotkey set", () => {
+  assert.deepEqual(validateHotkeySet({ screenshot: "Ctrl+Shift+S" }), { screenshot: "CommandOrControl+Shift+S" });
 });

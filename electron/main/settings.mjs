@@ -4,14 +4,9 @@ import path from "node:path";
 export const defaultSettings = {
   hotkeys: {
     screenshot: "Ctrl+Shift+S",
-    clipboardHistory: "Ctrl+Shift+V",
   },
   screenshot: {
     saveDirectory: "",
-  },
-  clipboard: {
-    enabled: true,
-    historyLimit: 100,
   },
   ai: {
     deepseekApiKey: "",
@@ -37,13 +32,11 @@ export class SettingsStore {
     this.userDataPath = userDataPath;
     this.settingsPath = path.join(userDataPath, "settings.json");
     this.screenshotsPath = path.join(userDataPath, "Screenshots");
-    this.clipboardImagesPath = path.join(userDataPath, "ClipboardImages");
   }
 
   ensureDirectories() {
     fs.mkdirSync(this.userDataPath, { recursive: true });
     fs.mkdirSync(this.screenshotsPath, { recursive: true });
-    fs.mkdirSync(this.clipboardImagesPath, { recursive: true });
   }
 
   load() {

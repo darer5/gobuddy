@@ -7,13 +7,12 @@ import { SettingsStore, mergeSettings } from "../electron/main/settings.mjs";
 
 test("deep merges settings without dropping nested defaults", () => {
   const merged = mergeSettings(
-    { hotkeys: { screenshot: "Ctrl+Shift+S", clipboardHistory: "Ctrl+Shift+V" }, clipboard: { enabled: true, historyLimit: 100 } },
+    { hotkeys: { screenshot: "Ctrl+Shift+S" }, window: { closeBehavior: "quit" } },
     { hotkeys: { screenshot: "Alt+S" } },
   );
 
   assert.equal(merged.hotkeys.screenshot, "Alt+S");
-  assert.equal(merged.hotkeys.clipboardHistory, "Ctrl+Shift+V");
-  assert.equal(merged.clipboard.historyLimit, 100);
+  assert.equal(merged.window.closeBehavior, "quit");
 });
 
 test("loads settings files written with a UTF-8 BOM", () => {

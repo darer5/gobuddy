@@ -5,35 +5,27 @@ import path from "node:path";
 import { test } from "node:test";
 import { GoBuddyDatabase } from "../electron/main/database.mjs";
 
-test("stores, filters, favorites, deletes and trims clipboard rows", async () => {
+test("stores and lists screenshot rows", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-db-"));
   const db = new GoBuddyDatabase(dir);
   await db.initialize();
 
-  db.addClipboardItem(item("1", "text", "alpha"), 10);
-  db.addClipboardItem(item("2", "link", "https://example.com"), 10);
+  db.addScreenshot(screenshot("1", "shot-alpha.png", "alpha screenshot"));
+  db.addScreenshot(screenshot("2", "shot-beta.png", "beta screenshot"));
 
-  assert.equal(db.listClipboard({ type: "all" }).length, 2);
-  assert.equal(db.listClipboard({ type: "link" }).length, 1);
-  assert.equal(db.listClipboard({ query: "alpha" })[0].id, "1");
-
-  db.favoriteClipboard("1", true);
-  assert.equal(db.listClipboard({ type: "all" })[0].favorite, true);
-
-  db.deleteClipboard("1");
-  assert.equal(db.listClipboard({ type: "all" }).length, 1);
+  assert.equal(db.listScreenshots().length, 2);
+  assert.equal(db.listScreenshots({ query: "alpha" })[0].id, "1");
+  assert.equal(db.findScreenshot("2").title, "shot-beta.png");
 });
 
-function item(id, type, content) {
+function screenshot(id, fileName, message) {
   return {
     id,
-    type,
-    title: content,
-    content,
-    contentHash: id,
+    filePath: path.join("C:", "mock", fileName),
     createdAt: new Date(Date.now() + Number(id)).toISOString(),
-    favorite: false,
-    sensitive: false,
-    metadata: {},
+    width: 1200,
+    height: 720,
+    copiedToClipboard: true,
+    message,
   };
 }

@@ -19,7 +19,6 @@ import {
 import { SettingsStore } from "./settings.mjs";
 import { GoBuddyDatabase } from "./database.mjs";
 import { registerGlobalHotkeys } from "./hotkeys.mjs";
-import { ClipboardMonitor } from "./clipboard.mjs";
 import { ScreenshotController } from "./screenshot.mjs";
 import { KnowledgeService } from "./knowledge-service.mjs";
 import { installKnowledgeSurface } from "./knowledge-surface.mjs";
@@ -38,7 +37,6 @@ let mainWindow;
 let tray;
 let settingsStore;
 let database;
-let clipboardMonitor;
 let screenshotController;
 let knowledgeService;
 let harnessRuntime;
@@ -73,19 +71,8 @@ app.whenReady().then(async () => {
   wireIpc();
   appendMainLog("ipc.wired");
 
-  clipboardMonitor = new ClipboardMonitor({
-    clipboard,
-    nativeImage,
-    database,
-    settingsStore,
-    sendEvent,
-  });
-  clipboardMonitor.start();
-  appendMainLog("clipboardMonitor.started");
-
   knowledgeService = new KnowledgeService({
     database,
-    clipboardMonitor,
     shellOpener: shell,
   });
   chatAgent = new ChatAgentService({
@@ -239,18 +226,6 @@ function createTray() {
 }
 
 function wireIpc() {
-  ipcMain.handle("clipboard:list", (_, query) => database.listClipboard(query));
-  ipcMain.handle("clipboard:restore", (_, id) => clipboardMonitor.restore(id));
-  ipcMain.handle("clipboard:delete", (_, id) => {
-    database.deleteClipboard(id);
-    sendEvent("clipboard:changed", { deletedId: id });
-    return { ok: true };
-  });
-  ipcMain.handle("clipboard:favorite", (_, id, favorite) => {
-    database.favoriteClipboard(id, favorite);
-    sendEvent("clipboard:changed", { favoriteId: id, favorite });
-    return { ok: true };
-  });
   ipcMain.handle("screenshot:startRegionCapture", () => screenshotController.startRegionCapture());
   ipcMain.handle("screenshot:completeRegionCapture", (_, rect) => screenshotController.completeRegionCapture(rect));
   ipcMain.handle("screenshot:cancelRegionCapture", () => screenshotController.cancelRegionCapture());
@@ -299,10 +274,6 @@ function registerHotkeys(hotkeys) {
       hotkeys,
       {
         screenshot: () => screenshotController?.startRegionCapture(),
-        clipboardHistory: () => {
-          showMainWindow();
-          sendEvent("clipboard:show-history", {});
-        },
       },
       (type, success, message) => database.logEvent(type, success, message),
     );
@@ -310,7 +281,6 @@ function registerHotkeys(hotkeys) {
     database?.logEvent("hotkey.register.invalid", false, error.message);
     return {
       screenshot: { accelerator: hotkeys?.screenshot ?? "", registered: false, error: error.message },
-      clipboardHistory: { accelerator: hotkeys?.clipboardHistory ?? "", registered: false, error: error.message },
     };
   }
 }

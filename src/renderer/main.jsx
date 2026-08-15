@@ -4,16 +4,12 @@ import {
   Add24Regular,
   BotSparkle24Filled,
   Chat24Regular,
-  Clipboard24Regular,
   Delete24Regular,
   Dismiss24Regular,
   History24Regular,
   Image24Regular,
   Keyboard24Regular,
   Link24Regular,
-  Pin24Filled,
-  Pin24Regular,
-  Search24Regular,
   Send24Regular,
   Settings24Regular,
   TextBulletListSquare24Regular,
@@ -33,7 +29,7 @@ function Root() {
 }
 
 function MainApp() {
-  const [view, setView] = useState("clipboard");
+  const [view, setView] = useState("chat");
   const [settings, setSettings] = useState(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [sessions, setSessions] = useState([]);
@@ -42,10 +38,6 @@ function MainApp() {
 
   useEffect(() => {
     api.settings.get().then(setSettings);
-  }, []);
-
-  useEffect(() => {
-    return api.on("clipboard:show-history", () => setView("clipboard"));
   }, []);
 
   useEffect(() => {
@@ -64,9 +56,6 @@ function MainApp() {
 
   function openView(nextView) {
     setView(nextView);
-    if (nextView !== "clipboard" && details.kind === "clipboard") {
-      setDetails({ open: false, kind: "empty" });
-    }
   }
 
   function openSettings() {
@@ -87,7 +76,6 @@ function MainApp() {
             setActiveSessionId("");
             openView("chat");
           }} />
-          <NavButton active={view === "clipboard"} icon={<Clipboard24Regular />} label="粘贴板" onClick={() => openView("clipboard")} />
           <NavButton active={view === "history"} icon={<History24Regular />} label="对话历史" onClick={() => openView("history")} />
         </nav>
 
@@ -114,8 +102,8 @@ function MainApp() {
       <section className="conversation-plane">
         <header className="workspace-header">
           <div>
-            <h1>{view === "clipboard" ? "粘贴板" : view === "chat" ? "新建对话" : "对话历史"}</h1>
-            <p>{view === "clipboard" ? "本地知识来源：复制内容、链接与图片。" : "基于 DeepSeek Harness 的本地知识 Agent 工作区。"}</p>
+            <h1>{view === "chat" ? "新建对话" : "对话历史"}</h1>
+            <p>基于 DeepSeek Harness 的本地知识 Agent 工作区。</p>
           </div>
           <div className="header-actions">
             <button className="ghost-button" onClick={() => api.screenshot.startRegionCapture()}>
@@ -125,7 +113,6 @@ function MainApp() {
           </div>
         </header>
 
-        {view === "clipboard" && <ClipboardView onSelectDetail={(item) => setDetails({ open: true, kind: "clipboard", item })} />}
         {view === "chat" && <ChatView sessionId={activeSessionId} onSessionChange={setActiveSessionId} onReferenceSelect={(item) => setDetails({ open: true, kind: item.type === "tool" ? "tool" : "knowledge", item })} onSessionsChanged={refreshSessions} />}
         {view === "history" && <HistoryView onOpenSession={(sessionId) => {
           setActiveSessionId(sessionId);
@@ -148,110 +135,6 @@ function NavButton({ active, icon, label, onClick }) {
     <button className={active ? "active" : ""} onClick={onClick}>
       {icon}
       <span>{label}</span>
-    </button>
-  );
-}
-
-function ClipboardView({ onSelectDetail }) {
-  const [type, setType] = useState("all");
-  const [query, setQuery] = useState("");
-  const [items, setItems] = useState([]);
-  const [selectedId, setSelectedId] = useState("");
-
-  async function refresh(next = { type, query }) {
-    const list = await api.clipboard.list({ ...next, limit: 100 });
-    setItems(list);
-    if (!selectedId && list[0]) {
-      setSelectedId(list[0].id);
-      onSelectDetail?.(list[0]);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-    return api.on("clipboard:changed", () => refresh());
-  }, []);
-
-  useEffect(() => {
-    refresh({ type, query });
-  }, [type, query]);
-
-  async function restore(id) {
-    await api.clipboard.restore(id);
-  }
-
-  async function remove(id) {
-    await api.clipboard.delete(id);
-    setSelectedId("");
-    await refresh();
-  }
-
-  async function favorite(id, favorite) {
-    await api.clipboard.favorite(id, favorite);
-    await refresh();
-  }
-
-  return (
-    <div className="clipboard-layout">
-      <div className="clipboard-top">
-        <div className="type-tabs">
-          {[
-            ["all", "全部"],
-            ["image", "图片"],
-            ["text", "文本"],
-            ["link", "链接"],
-          ].map(([value, label]) => (
-            <button className={type === value ? "active" : ""} key={value} onClick={() => setType(value)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="search">
-          <Search24Regular />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索粘贴板历史" />
-        </label>
-      </div>
-
-      <div className="clipboard-body single">
-        <section className="item-list">
-          {items.map((item) => (
-            <ClipboardRow
-              active={selectedId === item.id}
-              item={item}
-              key={item.id}
-              onClick={() => {
-                setSelectedId(item.id);
-                onSelectDetail?.(item);
-              }}
-              onFavorite={() => favorite(item.id, !item.favorite)}
-            />
-          ))}
-          {items.length === 0 && <EmptyState title="暂无粘贴板历史" description="复制文本、链接或图片后，会自动出现在这里。" />}
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function ClipboardRow({ item, active, onClick, onFavorite }) {
-  return (
-    <button className={`clipboard-row ${active ? "active" : ""}`} onClick={onClick}>
-      <span className={`type-icon ${item.type}`}>
-        <TypeIcon type={item.type} />
-      </span>
-      <span className="row-main">
-        <strong>{item.title}</strong>
-        <em>{typeLabel(item.type)} · {formatTime(item.createdAt)}</em>
-      </span>
-      <span
-        className="row-pin"
-        onClick={(event) => {
-          event.stopPropagation();
-          onFavorite();
-        }}
-      >
-        {item.favorite ? <Pin24Filled /> : <Pin24Regular />}
-      </span>
     </button>
   );
 }
@@ -355,7 +238,7 @@ function ChatView({ sessionId, onSessionChange, onReferenceSelect, onSessionsCha
           <div className="chat-empty compact">
             <BotSparkle24Filled />
             <h2>用对话管理你的零散知识</h2>
-            <p>可以问我最近复制过什么链接、有哪些截图、或者让某条知识生成待确认标签。</p>
+            <p>可以问我有哪些截图、或者让某条知识生成待确认标签。</p>
           </div>
         )}
         {messages.map((message) => (
@@ -368,7 +251,7 @@ function ChatView({ sessionId, onSessionChange, onReferenceSelect, onSessionsCha
         <textarea
           value={draft}
           disabled={sending}
-          placeholder="例如：帮我找最近复制的链接，或者列出今天的截图..."
+          placeholder="例如：列出今天的截图，或者帮我整理知识..."
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -452,21 +335,6 @@ function HistoryView({ onOpenSession, sessions }) {
 function DetailsPanel({ details, settings, onClose, onSaved }) {
   const item = details.item;
 
-  async function restoreClipboard() {
-    if (item?.id) await api.clipboard.restore(item.id);
-  }
-
-  async function favoriteClipboard() {
-    if (item?.id) await api.clipboard.favorite(item.id, !item.favorite);
-  }
-
-  async function deleteClipboard() {
-    if (item?.id) {
-      await api.clipboard.delete(item.id);
-      onClose();
-    }
-  }
-
   async function copyKnowledge() {
     if (item?.id) await api.knowledge.copy(item.id);
   }
@@ -491,7 +359,7 @@ function DetailsPanel({ details, settings, onClose, onSaved }) {
 
       {details.open && details.kind === "settings" && settings && <SettingsPanel settings={settings} onSaved={onSaved} />}
 
-      {details.open && (details.kind === "clipboard" || details.kind === "knowledge") && item && (
+      {details.open && details.kind === "knowledge" && item && (
         <section className="details-content">
           <div className="details-title">
             <TypeIcon type={item.type === "screenshot" ? "image" : item.type} />
@@ -515,10 +383,7 @@ function DetailsPanel({ details, settings, onClose, onSaved }) {
           )}
 
           <div className="preview-actions">
-            {details.kind === "clipboard" && <button onClick={restoreClipboard}>恢复到剪贴板</button>}
-            {details.kind === "clipboard" && <button onClick={favoriteClipboard}>{item.favorite ? "取消固定" : "固定"}</button>}
-            {details.kind === "clipboard" && <button className="danger" onClick={deleteClipboard}>删除</button>}
-            {details.kind === "knowledge" && <button onClick={item.filePath ? openKnowledge : copyKnowledge}>{item.filePath ? "打开文件" : "复制内容"}</button>}
+            <button onClick={item.filePath ? openKnowledge : copyKnowledge}>{item.filePath ? "打开文件" : "复制内容"}</button>
           </div>
         </section>
       )}
@@ -541,7 +406,6 @@ function DetailsPanel({ details, settings, onClose, onSaved }) {
 
 function SettingsPanel({ settings, onSaved }) {
   const [screenshot, setScreenshot] = useState(settings.hotkeys.screenshot);
-  const [clipboardHistory, setClipboardHistory] = useState(settings.hotkeys.clipboardHistory);
   const [theme, setTheme] = useState(settings.appearance?.theme ?? "system");
   const [autoStartHarness, setAutoStartHarness] = useState(settings.harness?.autoStart ?? true);
   const [error, setError] = useState("");
@@ -549,7 +413,7 @@ function SettingsPanel({ settings, onSaved }) {
   async function save() {
     try {
       setError("");
-      const result = await api.hotkeys.register({ screenshot, clipboardHistory });
+      const result = await api.hotkeys.register({ screenshot });
       const saved = await api.settings.update({
         appearance: { ...(result.settings.appearance ?? settings.appearance ?? {}), theme },
         harness: { ...(result.settings.harness ?? settings.harness ?? {}), autoStart: autoStartHarness },
@@ -577,11 +441,6 @@ function SettingsPanel({ settings, onSaved }) {
           <span>截图快捷键</span>
           <input value={screenshot} onChange={(event) => setScreenshot(event.target.value)} />
         </label>
-        <label>
-          <Keyboard24Regular />
-          <span>粘贴历史快捷键</span>
-          <input value={clipboardHistory} onChange={(event) => setClipboardHistory(event.target.value)} />
-        </label>
         <label className="checkbox-row">
           <input type="checkbox" checked={autoStartHarness} onChange={(event) => setAutoStartHarness(event.target.checked)} />
           <span>启动 GoBuddy 时自动启动 Harness</span>
@@ -590,7 +449,6 @@ function SettingsPanel({ settings, onSaved }) {
         <footer>
           <button onClick={() => {
             setScreenshot("Ctrl+Shift+S");
-            setClipboardHistory("Ctrl+Shift+V");
             setTheme("system");
             setAutoStartHarness(true);
           }}>重置默认</button>
@@ -686,25 +544,19 @@ function toRect(a, b) {
 
 function createBrowserMockApi() {
   const mockItems = [
-    { id: "1", type: "text", title: "const getData = async () => {", content: "const res = await fetch('/api/data');", createdAt: new Date().toISOString(), favorite: true },
-    { id: "2", type: "link", title: "https://github.com/gobuddy-app/gobuddy", content: "https://github.com/gobuddy-app/gobuddy", createdAt: new Date().toISOString(), favorite: false },
+    { id: "1", type: "screenshot", title: "screenshot-20260815.png", content: "截图元数据：1200x720，已保存", filePath: "C:/mock/screenshot-20260815.png", createdAt: new Date().toISOString(), favorite: false },
+    { id: "2", type: "screenshot", title: "screenshot-20260815-2.png", content: "截图元数据：800x600，已保存", filePath: "C:/mock/screenshot-20260815-2.png", createdAt: new Date().toISOString(), favorite: false },
   ];
   return {
-    clipboard: {
-      list: async ({ type = "all", query = "" } = {}) => mockItems.filter((item) => (type === "all" || item.type === type) && item.title.includes(query)),
-      restore: async () => ({ ok: true }),
-      delete: async () => ({ ok: true }),
-      favorite: async () => ({ ok: true }),
-    },
     screenshot: { startRegionCapture: async () => ({ ok: true }) },
     settings: {
-      get: async () => ({ hotkeys: { screenshot: "Ctrl+Shift+S", clipboardHistory: "Ctrl+Shift+V" }, appearance: { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
-      update: async (patch) => ({ hotkeys: patch.hotkeys ?? { screenshot: "Ctrl+Shift+S", clipboardHistory: "Ctrl+Shift+V" }, appearance: patch.appearance ?? { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
+      get: async () => ({ hotkeys: { screenshot: "Ctrl+Shift+S" }, appearance: { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
+      update: async (patch) => ({ hotkeys: patch.hotkeys ?? { screenshot: "Ctrl+Shift+S" }, appearance: patch.appearance ?? { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
     },
     hotkeys: { register: async () => ({ ok: true }) },
     window: { closeChoice: async () => ({ ok: true }) },
     knowledge: {
-      search: async () => mockItems.map((item) => ({ ...item, sourceType: "clipboard", note: "", tags: [] })),
+      search: async () => mockItems.map((item) => ({ ...item, sourceType: "screenshot", note: "", tags: [] })),
       update: async () => ({ ok: true }),
       confirmAction: async () => ({ ok: true }),
       open: async () => ({ ok: true }),
@@ -721,7 +573,7 @@ function createBrowserMockApi() {
           id: `a-${Date.now()}`,
           role: "assistant",
           content: "我在模拟知识库里找到了这些内容。",
-          references: mockItems.map((item) => ({ ...item, sourceType: "clipboard", note: "", tags: [] })),
+          references: mockItems.map((item) => ({ ...item, sourceType: "screenshot", note: "", tags: [] })),
           toolEvents: [{ id: "tool-1", name: "gobuddy.search_knowledge" }],
           createdAt: new Date().toISOString(),
         },

@@ -1,8 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 const validEvents = new Set([
-  "clipboard:changed",
-  "clipboard:show-history",
   "settings:changed",
   "chat:message",
   "chat:token",
@@ -13,12 +11,6 @@ const validEvents = new Set([
 ]);
 
 contextBridge.exposeInMainWorld("goBuddy", {
-  clipboard: {
-    list: (query) => ipcRenderer.invoke("clipboard:list", query),
-    restore: (id) => ipcRenderer.invoke("clipboard:restore", id),
-    delete: (id) => ipcRenderer.invoke("clipboard:delete", id),
-    favorite: (id, favorite) => ipcRenderer.invoke("clipboard:favorite", id, favorite),
-  },
   screenshot: {
     startRegionCapture: () => ipcRenderer.invoke("screenshot:startRegionCapture"),
   },

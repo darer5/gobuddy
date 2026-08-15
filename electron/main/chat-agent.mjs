@@ -102,7 +102,7 @@ export class ChatAgentService {
 
     if (references.length === 0) {
       return {
-        content: `我没有在当前剪贴板和截图知识库里找到与“${query || prompt}”相关的内容。\n\n你可以先复制一段文本、链接，或截一张图，然后再问我帮你整理。`,
+        content: `我没有在当前截图知识库里找到与“${query || prompt}”相关的内容。\n\n你可以先截一张图，然后再问我帮你整理。`,
         references: [],
         toolEvents: [toolEvent],
       };
@@ -123,10 +123,7 @@ export class ChatAgentService {
 function inferIntent(prompt) {
   const lower = prompt.toLowerCase();
   const type = /截图|截屏|screenshot/.test(prompt) ? "screenshot"
-    : /链接|网址|url|http/.test(lower) ? "link"
-      : /图片|image/.test(prompt) ? "image"
-        : /剪贴板|复制|clipboard/.test(lower) ? "clipboard"
-          : "all";
+    : "all";
 
   const needsUpdate = /标记|标签|整理|备注|归类|固定/.test(prompt);
   const tags = [];
@@ -145,7 +142,7 @@ function inferIntent(prompt) {
 
 function extractQuery(prompt, intent) {
   const cleaned = prompt
-    .replace(/帮我|请|查找|找一下|找|最近|复制的|剪贴板|截图|链接|内容|有哪些|是什么/g, " ")
+    .replace(/帮我|请|查找|找一下|找|最近|截图|链接|内容|有哪些|是什么/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (cleaned.length >= 2 && !intent.needsUpdate) {

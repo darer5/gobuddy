@@ -54,12 +54,7 @@ export function normalizeAccelerator(input) {
 
 export function validateHotkeySet(hotkeys) {
   const screenshot = normalizeAccelerator(hotkeys.screenshot);
-  const clipboardHistory = normalizeAccelerator(hotkeys.clipboardHistory);
-  if (screenshot === clipboardHistory) {
-    throw new Error("截图和粘贴历史快捷键不能相同。");
-  }
-
-  return { screenshot, clipboardHistory };
+  return { screenshot };
 }
 
 export function registerGlobalHotkeys(globalShortcut, hotkeys, callbacks, logEvent) {

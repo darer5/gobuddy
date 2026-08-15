@@ -3,9 +3,8 @@ import path from "node:path";
 const allowedPatchKeys = new Set(["note", "tags"]);
 
 export class KnowledgeService {
-  constructor({ database, clipboardMonitor, shellOpener }) {
+  constructor({ database, shellOpener }) {
     this.database = database;
-    this.clipboardMonitor = clipboardMonitor;
     this.shellOpener = shellOpener;
     this.pendingActions = new Map();
   }
@@ -13,13 +12,6 @@ export class KnowledgeService {
   search({ query = "", type = "all", limit = 20 } = {}) {
     const normalizedType = normalizeKnowledgeType(type);
     const items = [];
-
-    if (normalizedType === "all" || normalizedType === "clipboard") {
-      const clipboardType = type === "link" || type === "text" || type === "image" ? type : "all";
-      items.push(...this.database.listClipboard({ type: clipboardType, query, limit }).map((item) => (
-        this.enrich(clipboardToKnowledge(item))
-      )));
-    }
 
     if (normalizedType === "all" || normalizedType === "screenshot") {
       items.push(...this.database.listScreenshots({ query, limit }).map((item) => (
@@ -38,11 +30,6 @@ export class KnowledgeService {
   }
 
   get(id) {
-    const clipboard = this.database.findClipboard(id);
-    if (clipboard) {
-      return this.enrich(clipboardToKnowledge(clipboard));
-    }
-
     const screenshot = this.database.findScreenshot(id);
     if (screenshot) {
       return this.enrich(screenshotToKnowledge(screenshot));
@@ -112,10 +99,6 @@ export class KnowledgeService {
       return { ok: false, message: "未找到知识条目。" };
     }
 
-    if (item.sourceType === "clipboard") {
-      return this.clipboardMonitor.restore(item.id);
-    }
-
     return { ok: false, message: "截图元数据暂不支持直接复制，请打开文件后复制。" };
   }
 
@@ -134,20 +117,6 @@ export class KnowledgeService {
       ].filter(Boolean).join("\n"),
     };
   }
-}
-
-export function clipboardToKnowledge(item) {
-  return {
-    id: item.id,
-    sourceType: "clipboard",
-    type: item.type,
-    title: item.title,
-    content: item.type === "image" ? "剪贴板图片元数据" : item.content,
-    filePath: item.filePath || "",
-    createdAt: item.createdAt,
-    metadata: item.metadata ?? {},
-    sensitive: Boolean(item.sensitive),
-  };
 }
 
 export function screenshotToKnowledge(item) {
@@ -183,7 +152,6 @@ export function sanitizePatch(patch = {}) {
 
 function normalizeKnowledgeType(type) {
   if (type === "screenshot") return "screenshot";
-  if (type === "clipboard" || type === "text" || type === "link" || type === "image") return "clipboard";
   return "all";
 }
 
