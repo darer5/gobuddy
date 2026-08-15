@@ -1,0 +1,194 @@
+{
+  "name": "GoBuddy Work Companion Pet",
+  "version": 2,
+  "fallbackFrame": "assets/pet-cropped.png",
+  "references": [
+    "Shijima-Qt: transparent always-on-top mascot behavior",
+    "shimeji-ee: action manifest and idle/poke/drag behavior model",
+    "Electron BrowserWindow.setIgnoreMouseEvents forward pointer model"
+  ],
+  "actions": [
+    {
+      "mode": "idle",
+      "priority": 0,
+      "durationMs": 0,
+      "loop": true,
+      "fps": 2,
+      "animation": "breathe",
+      "frames": [
+        { "src": "pet/sprites/idle/frame-000.png" },
+        { "src": "pet/sprites/idle/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "我在这里。"
+    },
+    {
+      "mode": "blink",
+      "priority": 0,
+      "durationMs": 1000,
+      "loop": false,
+      "fps": 6,
+      "animation": "blink",
+      "frames": [
+        { "src": "pet/sprites/blink/frame-000.png" },
+        { "src": "pet/sprites/blink/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "眨眨眼，继续陪你。"
+    },
+    {
+      "mode": "look",
+      "priority": 0,
+      "durationMs": 1800,
+      "loop": false,
+      "fps": 5,
+      "animation": "look",
+      "frames": [
+        { "src": "pet/sprites/look/frame-000.png" },
+        { "src": "pet/sprites/look/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "我看看旁边发生了什么。"
+    },
+    {
+      "mode": "poke",
+      "priority": 2,
+      "durationMs": 1600,
+      "loop": false,
+      "fps": 8,
+      "animation": "bounce",
+      "frames": [
+        { "src": "pet/sprites/poke/frame-000.png" },
+        { "src": "pet/sprites/poke/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "嘿，我在。"
+    },
+    {
+      "mode": "drag",
+      "priority": 4,
+      "durationMs": 0,
+      "loop": true,
+      "fps": 6,
+      "animation": "drag",
+      "frames": [
+        { "src": "pet/sprites/drag/frame-000.png" },
+        { "src": "pet/sprites/drag/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "正在移动位置。"
+    },
+    {
+      "mode": "sleep",
+      "priority": 1,
+      "durationMs": 0,
+      "loop": true,
+      "fps": 2,
+      "animation": "sleep",
+      "frames": [
+        { "src": "pet/sprites/sleep/frame-000.png" },
+        { "src": "pet/sprites/sleep/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "我先安静待命。"
+    },
+    {
+      "mode": "clipboard-text",
+      "priority": 2,
+      "durationMs": 2200,
+      "loop": false,
+      "fps": 7,
+      "animation": "nod",
+      "frames": [
+        { "src": "pet/sprites/clipboard-text/frame-000.png" },
+        { "src": "pet/sprites/clipboard-text/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "剪贴板收到了新文本。"
+    },
+    {
+      "mode": "clipboard-link",
+      "priority": 2,
+      "durationMs": 2200,
+      "loop": false,
+      "fps": 7,
+      "animation": "look",
+      "frames": [
+        { "src": "pet/sprites/clipboard-link/frame-000.png" },
+        { "src": "pet/sprites/clipboard-link/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "链接已收进剪贴板历史。"
+    },
+    {
+      "mode": "clipboard-image",
+      "priority": 2,
+      "durationMs": 2400,
+      "loop": false,
+      "fps": 8,
+      "animation": "pop",
+      "frames": [
+        { "src": "pet/sprites/clipboard-image/frame-000.png" },
+        { "src": "pet/sprites/clipboard-image/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "图片已收进剪贴板历史。"
+    },
+    {
+      "mode": "screenshot-start",
+      "priority": 3,
+      "durationMs": 2600,
+      "loop": true,
+      "fps": 6,
+      "animation": "focus",
+      "frames": [
+        { "src": "pet/sprites/screenshot-start/frame-000.png" },
+        { "src": "pet/sprites/screenshot-start/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "截图选择框已打开。"
+    },
+    {
+      "mode": "screenshot-success",
+      "priority": 4,
+      "durationMs": 2800,
+      "loop": false,
+      "fps": 8,
+      "animation": "sparkle",
+      "frames": [
+        { "src": "pet/sprites/screenshot-success/frame-000.png" },
+        { "src": "pet/sprites/screenshot-success/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "截图已保存并复制到剪贴板。"
+    },
+    {
+      "mode": "screenshot-cancel",
+      "priority": 2,
+      "durationMs": 1400,
+      "loop": false,
+      "fps": 5,
+      "animation": "breathe",
+      "frames": [
+        { "src": "pet/sprites/screenshot-cancel/frame-000.png" },
+        { "src": "pet/sprites/screenshot-cancel/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "已取消截图。"
+    },
+    {
+      "mode": "main-open",
+      "priority": 4,
+      "durationMs": 1800,
+      "loop": false,
+      "fps": 8,
+      "animation": "jump",
+      "frames": [
+        { "src": "pet/sprites/main-open/frame-000.png" },
+        { "src": "pet/sprites/main-open/frame-001.png" }
+      ],
+      "hitbox": { "x": 32, "y": 28, "width": 170, "height": 188 },
+      "message": "主页面已打开。"
+    }
+  ]
+}

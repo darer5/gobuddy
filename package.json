@@ -1,0 +1,78 @@
+{
+  "name": "gobuddy-electron",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main/index.mjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron": "electron .",
+    "start": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && cross-env GOBUDDY_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "prepare:harness-runtime": "node scripts/prepare-harness-runtime.mjs",
+    "prepare:node-runtime": "node scripts/prepare-node-runtime.mjs",
+    "prepare:runtime-assets": "npm run prepare:harness-runtime && npm run prepare:node-runtime",
+    "pack:win": "npm run build && npm run prepare:runtime-assets && electron-builder --win --dir",
+    "dist:win": "npm run build && npm run prepare:runtime-assets && electron-builder --win"
+  },
+  "dependencies": {
+    "@fluentui/react-icons": "^2.0.334",
+    "@vitejs/plugin-react": "5.0.4",
+    "electron-squirrel-startup": "^1.0.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "sql.js": "^1.13.0",
+    "vite": "^6.4.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.4.0",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.gobuddy.app",
+    "productName": "GoBuddy",
+    "afterPack": "scripts/after-pack.mjs",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/renderer/**",
+      "electron/**",
+      "public/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/HarnessRuntimeManaged",
+        "to": "HarnessRuntimeManaged",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/node",
+        "to": "node",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "GoBuddy-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
