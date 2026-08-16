@@ -2,12 +2,28 @@
 
 GoBuddy 是一个纯 Electron 桌面生产力助手：区域截图 + 本地知识 Agent，主界面集成 DeepSeek Harness Web 客户端。
 
+![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.6-4D6BFE)
+![AI Agent](https://img.shields.io/badge/AI%20Agent-Local-blue)
+![Electron](https://img.shields.io/badge/Electron-37-47848F)
+![React](https://img.shields.io/badge/React-19-61DAFB)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20Intel-lightgrey)
+
+## 标签
+
+`agent` `ai-assistant` `deepseek-harness` `local-first` `knowledge-graph` `electron` `react` `desktop-app` `screenshot` `sqlite`
+
 ## 架构
 
 - **Electron Main**（`electron/main/`）：窗口、托盘、全局快捷键、区域截图、SQLite 持久化、设置存储，以及 DeepSeek Harness 运行时的安装、启动与崩溃恢复。
 - **Preload**（`electron/preload/`）：通过 `contextBridge` 暴露白名单 IPC 契约（`window.goBuddy` / `window.goBuddyCapture`）。
 - **Renderer**（`src/renderer/`）：React + Vite，负责截图选区 overlay；主界面由 DeepSeek Harness Web 客户端提供。
-- **Harness 运行时**：以独立 Node 子进程运行，随安装包自带（`vendor/`），并预置 dshmarket、better-sidebar、全局规则、微信读书侧边栏等插件。
+- **Harness 运行时**：以独立 Node 子进程运行，随安装包自带（`vendor/`），并预置 15 个插件：Graph Memory、dsh-better-sidebar、Task Board、Git Graph、Live Stats、微信读书侧边栏、Vision Toolkit、dshmarket、全局规则、dsh-visualize、dsh-annotation、dsh-at-file、dsh-file-uploads、Aegis、OpenPencil——安装后开箱即用，无需联网下载。
+
+## 功能
+
+- **AI Agent 工作区**：基于 DeepSeek Harness 的本地知识 Agent，跨会话记忆（Graph Memory：知识图谱 / PageRank / 社区发现 / 向量检索）。
+- **区域截图**：全局快捷键（默认 `Ctrl+Shift+S`）截图，自动保存并复制到剪贴板，写入知识库。
+- **任务看板 / Git 图谱 / 实时统计 / 文件工作台 / 终端 / 内嵌浏览器**：由预置插件提供，随装随用。
 
 ## 开发
 
