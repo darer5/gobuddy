@@ -1,6 +1,11 @@
 import path from "node:path";
 
 const allowedPatchKeys = new Set(["note", "tags"]);
+// Screenshot metadata lives in SQLite while notes/tags live in the
+// knowledge_overrides table. The database layer only matches file_path and
+// message, so pre-filtering in SQL would silently miss note/tag searches.
+// The catalog is small enough to filter in memory.
+const MAX_SCAN_ITEMS = 10000;
 
 export class KnowledgeService {
   constructor({ database, shellOpener }) {
@@ -14,7 +19,7 @@ export class KnowledgeService {
     const items = [];
 
     if (normalizedType === "all" || normalizedType === "screenshot") {
-      items.push(...this.database.listScreenshots({ query, limit }).map((item) => (
+      items.push(...this.database.listScreenshots({ query: "", limit: MAX_SCAN_ITEMS }).map((item) => (
         this.enrich(screenshotToKnowledge(item))
       )));
     }
@@ -89,17 +94,13 @@ export class KnowledgeService {
       return { ok: false, message: "该知识条目没有可打开的本地文件。" };
     }
 
-    await this.shellOpener.openPath(item.filePath);
-    return { ok: true, item };
-  }
-
-  copy(id) {
-    const item = this.get(id);
-    if (!item) {
-      return { ok: false, message: "未找到知识条目。" };
+    // shell.openPath resolves with an error message string when it fails,
+    // and an empty string on success — never treat a failure as success.
+    const errorMessage = await this.shellOpener.openPath(item.filePath);
+    if (errorMessage) {
+      return { ok: false, message: errorMessage };
     }
-
-    return { ok: false, message: "截图元数据暂不支持直接复制，请打开文件后复制。" };
+    return { ok: true, item };
   }
 
   enrich(item) {

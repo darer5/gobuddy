@@ -3,11 +3,9 @@ import { contextBridge, ipcRenderer } from "electron";
 const validEvents = new Set([
   "settings:changed",
   "chat:message",
-  "chat:token",
   "chat:toolCall",
   "chat:toolResult",
   "chat:status",
-  "chat:error",
 ]);
 
 contextBridge.exposeInMainWorld("goBuddy", {
@@ -30,7 +28,6 @@ contextBridge.exposeInMainWorld("goBuddy", {
     update: (id, patch) => ipcRenderer.invoke("knowledge:update", id, patch),
     confirmAction: (actionId, approved) => ipcRenderer.invoke("knowledge:confirmAction", actionId, approved),
     open: (id) => ipcRenderer.invoke("knowledge:open", id),
-    copy: (id) => ipcRenderer.invoke("knowledge:copy", id),
   },
   harness: {
     status: () => ipcRenderer.invoke("harness:status"),

@@ -14,6 +14,19 @@ test("knowledge service searches screenshot metadata", async () => {
   assert.equal(screenshots[0].type, "screenshot");
 });
 
+test("knowledge service searches note and tag overrides", async () => {
+  const { db, knowledge } = await createKnowledgeFixture();
+  db.updateKnowledgeOverride("1", { note: "季度汇报材料", tags: ["项目资料"] });
+
+  const byNote = knowledge.search({ query: "季度汇报" });
+  assert.equal(byNote.length, 1);
+  assert.equal(byNote[0].id, "1");
+
+  const byTag = knowledge.search({ query: "项目资料" });
+  assert.equal(byTag.length, 1);
+  assert.equal(byTag[0].id, "1");
+});
+
 test("knowledge write actions require confirmation", async () => {
   const { knowledge } = await createKnowledgeFixture();
   const [item] = knowledge.search({ query: "alpha" });

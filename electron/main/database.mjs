@@ -69,7 +69,12 @@ export class GoBuddyDatabase {
 
   persist() {
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    fs.writeFileSync(this.dbPath, Buffer.from(this.db.export()));
+    // Write to a temp file and rename so a crash mid-write cannot corrupt the
+    // last known-good database file.
+    const bytes = Buffer.from(this.db.export());
+    const tempPath = `${this.dbPath}.tmp`;
+    fs.writeFileSync(tempPath, bytes);
+    fs.renameSync(tempPath, this.dbPath);
   }
 
   addScreenshot(item) {
@@ -140,25 +145,6 @@ export class GoBuddyDatabase {
     );
     this.persist();
     return { id, title: title || "新对话", createdAt, updatedAt: createdAt };
-  }
-
-  upsertChatSession(session) {
-    const existing = this.get("SELECT * FROM chat_sessions WHERE id = ? LIMIT 1", [session.id]);
-    const now = session.updatedAt || new Date().toISOString();
-    if (existing) {
-      this.run("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?", [
-        session.title || existing.title,
-        now,
-        session.id,
-      ]);
-    } else {
-      this.run(
-        "INSERT INTO chat_sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        [session.id, session.title || "新对话", session.createdAt || now, now],
-      );
-    }
-    this.persist();
-    return this.findChatSession(session.id);
   }
 
   findChatSession(id) {

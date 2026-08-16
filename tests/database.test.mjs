@@ -18,6 +18,17 @@ test("stores and lists screenshot rows", async () => {
   assert.equal(db.findScreenshot("2").title, "shot-beta.png");
 });
 
+test("persist writes the database atomically without leftover temp files", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-db-"));
+  const db = new GoBuddyDatabase(dir);
+  await db.initialize();
+
+  db.addScreenshot(screenshot("1", "shot-alpha.png", "alpha screenshot"));
+
+  assert.equal(fs.existsSync(path.join(dir, "gobuddy-electron.db")), true);
+  assert.equal(fs.existsSync(path.join(dir, "gobuddy-electron.db.tmp")), false);
+});
+
 function screenshot(id, fileName, message) {
   return {
     id,

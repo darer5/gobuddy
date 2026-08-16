@@ -173,7 +173,9 @@ function createMainWindow() {
     return { action: "deny" };
   });
 
-  loadHarnessSplash(mainWindow, "正在启动 DeepSeek Harness...");
+  loadHarnessSplash(mainWindow, "正在启动 DeepSeek Harness...").catch((error) => {
+    appendMainLog("window.splash.failed", { message: error.message });
+  });
 }
 
 async function loadHarnessClientInMainWindow(settings) {
@@ -200,14 +202,16 @@ async function loadHarnessClientInMainWindow(settings) {
     appendMainLog("window.loadHarness.failed", { message: error.message, stack: error.stack });
     database?.logEvent("window.load.failed", false, error.message);
     harnessRuntime?.setStatus?.("error", `DeepSeek Harness 客户端加载失败：${error.message}`);
-    await loadHarnessError(mainWindow, error);
+    await loadHarnessError(mainWindow, error).catch((pageError) => {
+      appendMainLog("window.errorPage.failed", { message: pageError.message });
+    });
   }
 }
 
 function createTray() {
   // macOS cannot render .ico files; use the PNG tray icon there.
   const iconFileName = process.platform === "darwin" ? "tray-icon.png" : "favicon.ico";
-  const iconPath = path.join(process.cwd(), "public", iconFileName);
+  const iconPath = path.join(app.getAppPath(), "public", iconFileName);
   const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip("GoBuddy");
@@ -226,22 +230,27 @@ function wireIpc() {
   ipcMain.handle("screenshot:cancelRegionCapture", () => screenshotController.cancelRegionCapture());
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:update", (_, partialSettings) => {
+    const previousSettings = settingsStore.load();
     const settings = settingsStore.update(partialSettings);
+    if (
+      partialSettings?.hotkeys
+      && JSON.stringify(partialSettings.hotkeys) !== JSON.stringify(previousSettings.hotkeys)
+    ) {
+      try {
+        applyHotkeyRegistration(settings.hotkeys, previousSettings.hotkeys);
+      } catch (error) {
+        // Keep the persisted settings and the registered shortcuts consistent:
+        // roll both back before surfacing the error.
+        settingsStore.save(previousSettings);
+        throw error;
+      }
+    }
     sendEvent("settings:changed", settings);
     return settings;
   });
   ipcMain.handle("hotkeys:register", (_, hotkeys) => {
     const previousSettings = settingsStore.load();
-    const results = registerHotkeys(hotkeys);
-    const failures = Object.entries(results).filter(([, result]) => !result.registered);
-    if (failures.length > 0) {
-      registerHotkeys(previousSettings.hotkeys);
-      const message = failures
-        .map(([name, result]) => `${name}: ${result.error ?? result.accelerator}`)
-        .join("；");
-      throw new Error(`快捷键注册失败：${message}`);
-    }
-
+    const results = applyHotkeyRegistration(hotkeys, previousSettings.hotkeys);
     const settings = settingsStore.update({ hotkeys });
     sendEvent("settings:changed", settings);
     return { settings, results };
@@ -252,7 +261,6 @@ function wireIpc() {
   ipcMain.handle("knowledge:update", (_, id, patch) => knowledgeService.update(id, patch));
   ipcMain.handle("knowledge:confirmAction", (_, actionId, approved) => knowledgeService.confirmAction(actionId, approved));
   ipcMain.handle("knowledge:open", (_, id) => knowledgeService.open(id));
-  ipcMain.handle("knowledge:copy", (_, id) => knowledgeService.copy(id));
   ipcMain.handle("harness:status", () => harnessRuntime.getStatus());
   ipcMain.handle("harness:install", () => harnessRuntime.install());
   ipcMain.handle("harness:start", () => harnessRuntime.start());
@@ -260,6 +268,19 @@ function wireIpc() {
   ipcMain.handle("harness:stop", () => chatAgent.stop());
   ipcMain.handle("harness:listSessions", () => chatAgent.listSessions());
   ipcMain.handle("harness:listMessages", (_, sessionId) => chatAgent.listMessages(sessionId));
+}
+
+function applyHotkeyRegistration(hotkeys, previousHotkeys) {
+  const results = registerHotkeys(hotkeys);
+  const failures = Object.entries(results).filter(([, result]) => !result.registered);
+  if (failures.length > 0) {
+    registerHotkeys(previousHotkeys);
+    const message = failures
+      .map(([name, result]) => `${name}: ${result.error ?? result.accelerator}`)
+      .join("；");
+    throw new Error(`快捷键注册失败：${message}`);
+  }
+  return results;
 }
 
 function registerHotkeys(hotkeys) {
@@ -382,7 +403,7 @@ async function loadWindow(window, hash) {
     return;
   }
 
-  await window.loadFile(path.join(process.cwd(), "dist", "renderer", "index.html"), { hash: hash.replace("#", "") });
+  await window.loadFile(path.join(app.getAppPath(), "dist", "renderer", "index.html"), { hash: hash.replace("#", "") });
 }
 
 /**
@@ -396,6 +417,9 @@ async function loadWindow(window, hash) {
 async function waitForHarnessReady(harnessClientUrl, runtime, { timeoutMs = 45000, intervalMs = 500 } = {}) {
   const startedAt = Date.now();
   let lastError = new Error("Harness is not ready");
+  // Probe each URL with a bounded request timeout so an unresponsive listener
+  // on the port cannot stall the whole startup window.
+  const probeTimeoutMs = 1500;
 
   while (Date.now() - startedAt < timeoutMs) {
     if (runtime) {
@@ -406,7 +430,14 @@ async function waitForHarnessReady(harnessClientUrl, runtime, { timeoutMs = 4500
     }
     const url = runtime?.getClientUrl?.() ?? harnessClientUrl;
     try {
-      const response = await fetch(url);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), probeTimeoutMs);
+      let response;
+      try {
+        response = await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (response.ok) {
         return url;
       }

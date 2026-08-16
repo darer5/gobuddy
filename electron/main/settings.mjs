@@ -59,7 +59,10 @@ export class SettingsStore {
   save(settings) {
     this.ensureDirectories();
     const resolved = this.withResolvedDefaults(settings);
-    fs.writeFileSync(this.settingsPath, JSON.stringify(resolved, null, 2), "utf8");
+    // Write atomically so a crash mid-write cannot corrupt settings.json.
+    const tempPath = `${this.settingsPath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(resolved, null, 2), "utf8");
+    fs.renameSync(tempPath, this.settingsPath);
     return resolved;
   }
 

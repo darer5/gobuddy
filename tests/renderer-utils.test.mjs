@@ -8,7 +8,9 @@ test("renderer converts Windows paths with spaces and Chinese characters to file
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-renderer-"));
   const sourcePath = path.join(tempDir, "main.mjs");
   const text = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "main.jsx"), "utf8");
-  const match = text.match(/export function filePathToUrl[\s\S]*?\n}\n/);
+  // Accept both LF and CRLF line endings: the working tree line endings
+  // depend on the platform and git autocrlf settings.
+  const match = text.match(/export function filePathToUrl[\s\S]*?\r?\n}\r?\n/);
   fs.writeFileSync(sourcePath, match[0], "utf8");
   const { filePathToUrl } = await import(`file:///${sourcePath.replaceAll("\\", "/")}`);
 

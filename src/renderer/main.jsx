@@ -4,7 +4,6 @@ import {
   Add24Regular,
   BotSparkle24Filled,
   Chat24Regular,
-  Delete24Regular,
   Dismiss24Regular,
   History24Regular,
   Image24Regular,
@@ -295,10 +294,6 @@ function KnowledgeCard({ item, onSelect }) {
     await api.knowledge.open(item.id);
   }
 
-  async function copyItem() {
-    await api.knowledge.copy(item.id);
-  }
-
   return (
     <div className="knowledge-card">
       <TypeIcon type={item.type === "screenshot" ? "image" : item.type} />
@@ -307,7 +302,7 @@ function KnowledgeCard({ item, onSelect }) {
         <span>{knowledgeLabel(item)} · {formatTime(item.createdAt)}</span>
         {item.note && <em>{item.note}</em>}
       </button>
-      <button onClick={item.filePath ? openItem : copyItem}>{item.filePath ? "打开" : "复制"}</button>
+      {item.filePath && <button onClick={openItem}>打开</button>}
     </div>
   );
 }
@@ -334,10 +329,6 @@ function HistoryView({ onOpenSession, sessions }) {
 
 function DetailsPanel({ details, settings, onClose, onSaved }) {
   const item = details.item;
-
-  async function copyKnowledge() {
-    if (item?.id) await api.knowledge.copy(item.id);
-  }
 
   async function openKnowledge() {
     if (item?.id) await api.knowledge.open(item.id);
@@ -383,7 +374,7 @@ function DetailsPanel({ details, settings, onClose, onSaved }) {
           )}
 
           <div className="preview-actions">
-            <button onClick={item.filePath ? openKnowledge : copyKnowledge}>{item.filePath ? "打开文件" : "复制内容"}</button>
+            {item.filePath && <button onClick={openKnowledge}>打开文件</button>}
           </div>
         </section>
       )}
@@ -463,6 +454,9 @@ function CaptureOverlay() {
   const [rect, setRect] = useState(null);
 
   useEffect(() => {
+    if (!window.goBuddyCapture) {
+      return undefined;
+    }
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         window.goBuddyCapture.cancel();
@@ -472,7 +466,18 @@ function CaptureOverlay() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  if (!window.goBuddyCapture) {
+    return (
+      <main className="capture-overlay">
+        <div className="capture-tip">截图模式仅支持在桌面应用内使用。</div>
+      </main>
+    );
+  }
+
   function begin(event) {
+    if (event.button !== 0) {
+      return;
+    }
     setStart({ x: event.clientX, y: event.clientY });
     setRect({ x: event.clientX, y: event.clientY, width: 1, height: 1 });
   }
@@ -553,14 +558,20 @@ function createBrowserMockApi() {
       get: async () => ({ hotkeys: { screenshot: "Ctrl+Shift+S" }, appearance: { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
       update: async (patch) => ({ hotkeys: patch.hotkeys ?? { screenshot: "Ctrl+Shift+S" }, appearance: patch.appearance ?? { theme: "system", sidebarCollapsed: false, detailsOpen: false } }),
     },
-    hotkeys: { register: async () => ({ ok: true }) },
-    window: { closeChoice: async () => ({ ok: true }) },
+    hotkeys: {
+      register: async () => ({
+        settings: {
+          hotkeys: { screenshot: "Ctrl+Shift+S" },
+          appearance: { theme: "system", sidebarCollapsed: false, detailsOpen: false },
+        },
+        results: { screenshot: { registered: true } },
+      }),
+    },
     knowledge: {
       search: async () => mockItems.map((item) => ({ ...item, sourceType: "screenshot", note: "", tags: [] })),
       update: async () => ({ ok: true }),
       confirmAction: async () => ({ ok: true }),
       open: async () => ({ ok: true }),
-      copy: async () => ({ ok: true }),
     },
     harness: {
       status: async () => ({ state: "available", message: "浏览器预览模式：使用模拟知识 Agent。" }),

@@ -169,6 +169,17 @@ test("harness runtime adopts a harness already serving on start", async () => {
   }
 });
 
+test("harness runtime does not adopt an external harness without a resolvable pid", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtime = new HarnessRuntimeManager({ userDataPath: dir });
+  runtime.isServedByHarness = async () => true;
+  runtime.discoverExternalPid = () => null;
+
+  assert.equal(await runtime.adoptExternalHarness(), false);
+  assert.equal(runtime.externalPid, null);
+  assert.notEqual(runtime.getStatus().state, "running");
+});
+
 test("harness runtime auto-restarts after a crash and reports error when the budget is exhausted", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
   const spawnsPath = path.join(dir, "spawns.txt");
@@ -199,7 +210,12 @@ test("harness runtime auto-restarts after a crash and reports error when the bud
 
 function listenOnPort(port) {
   return new Promise((resolve, reject) => {
-    const server = net.createServer();
+    const server = net.createServer((socket) => {
+      // This server only exists to occupy the port. Destroy probe connections
+      // immediately so they cannot leak past the test and keep the test
+      // process alive after the suite finishes.
+      socket.destroy();
+    });
     server.once("error", reject);
     server.listen({ host: "127.0.0.1", port }, () => resolve(server));
   });

@@ -109,7 +109,7 @@ export class ChatAgentService {
     }
 
     return {
-      content: buildAnswer(prompt, references),
+      content: buildAnswer(references),
       references,
       toolEvents: [toolEvent],
     };
@@ -121,7 +121,6 @@ export class ChatAgentService {
 }
 
 function inferIntent(prompt) {
-  const lower = prompt.toLowerCase();
   const type = /截图|截屏|screenshot/.test(prompt) ? "screenshot"
     : "all";
 
@@ -151,7 +150,7 @@ function extractQuery(prompt, intent) {
   return "";
 }
 
-function buildAnswer(prompt, references) {
+function buildAnswer(references) {
   const lines = references.map((item, index) => `${index + 1}. ${describeKnowledge(item)}`);
   return `我在 GoBuddy 知识库里找到了 ${references.length} 条相关内容：\n\n${lines.join("\n")}\n\n你可以继续让我打开、复制、总结，或给其中某条加标签。`;
 }

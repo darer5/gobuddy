@@ -1,6 +1,13 @@
 # GoBuddy Electron
 
-GoBuddy 现在是纯 Electron 桌面应用。Electron Main 负责窗口、托盘、全局快捷键、截图、SQLite 和 IPC；React/Vite Renderer 负责 Codex 风格主界面、对话工作台和设置。
+GoBuddy 是一个纯 Electron 桌面生产力助手：区域截图 + 本地知识 Agent，主界面集成 DeepSeek Harness Web 客户端。
+
+## 架构
+
+- **Electron Main**（`electron/main/`）：窗口、托盘、全局快捷键、区域截图、SQLite 持久化、设置存储，以及 DeepSeek Harness 运行时的安装、启动与崩溃恢复。
+- **Preload**（`electron/preload/`）：通过 `contextBridge` 暴露白名单 IPC 契约（`window.goBuddy` / `window.goBuddyCapture`）。
+- **Renderer**（`src/renderer/`）：React + Vite，负责截图选区 overlay；主界面由 DeepSeek Harness Web 客户端提供。
+- **Harness 运行时**：以独立 Node 子进程运行，随安装包自带（`vendor/`），并预置 dshmarket、better-sidebar、全局规则、微信读书侧边栏等插件。
 
 ## 开发
 
@@ -24,7 +31,7 @@ npm run electron
 npm test
 ```
 
-当前测试覆盖快捷键解析、设置合并、SQLite CRUD 和知识服务。
+当前测试覆盖快捷键解析、设置合并、SQLite CRUD、知识服务、聊天 Agent、截图坐标和 Harness 运行时管理。
 
 ## 打包
 
@@ -42,4 +49,3 @@ npm run dist:mac
 
 - **安装 DMG**:见 [docs/macOS使用与发布指南.md](docs/macOS使用与发布指南.md)(含 Gatekeeper 放行、系统权限、常见问题)。
 - **发布流程**:推 `v*` tag 后 GitHub Actions 在 Intel macOS 构建机自动产出 `GoBuddy-<版本>-mac-x64.dmg` 并上传到 GitHub Release,详见指南第三节。
-

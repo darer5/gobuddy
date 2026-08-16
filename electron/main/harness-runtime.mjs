@@ -201,6 +201,12 @@ export class HarnessRuntimeManager {
       return false;
     }
     const pid = this.discoverExternalPid();
+    if (!pid) {
+      // The port is served but we cannot resolve the owning process, so the
+      // runtime would be marked running without any way to stop it later.
+      this.log("harness.external.adopt.skipped", { reason: "no pid on port" });
+      return false;
+    }
     this.externalPid = pid;
     this.log("harness.external.adopted", { pid, url: this.getClientUrl() });
     this.setStatus("running", "DeepSeek Harness runtime 正在运行（已接管外部重启的进程）。");

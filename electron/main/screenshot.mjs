@@ -39,7 +39,14 @@ export class ScreenshotController {
         nodeIntegration: false,
       },
     });
-    await this.loadWindow(this.captureWindow, "#capture");
+    try {
+      await this.loadWindow(this.captureWindow, "#capture");
+    } catch (error) {
+      // Never leave a half-loaded overlay window behind when the renderer
+      // fails to come up.
+      this.closeCaptureWindow();
+      throw error;
+    }
     return { ok: true };
   }
 
@@ -59,14 +66,27 @@ export class ScreenshotController {
       width: Math.min(globalRect.width, display.bounds.width),
       height: Math.min(globalRect.height, display.bounds.height),
     };
-    const sources = await this.desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: display.bounds.width,
-        height: display.bounds.height,
-      },
-    });
+    let sources;
+    try {
+      sources = await this.desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: {
+          width: display.bounds.width,
+          height: display.bounds.height,
+        },
+      });
+    } catch (error) {
+      // A capture failure must never leave the user stuck in screenshot mode.
+      this.database.logEvent("screenshot.capture.failed", false, error.message);
+      this.closeCaptureWindow();
+      return { ok: false, message: `无法捕获屏幕：${error.message}` };
+    }
     const source = sources.find((item) => item.display_id === String(display.id)) ?? sources[0];
+    if (!source) {
+      this.database.logEvent("screenshot.capture.failed", false, "no screen source available");
+      this.closeCaptureWindow();
+      return { ok: false, message: "无法捕获屏幕内容，请重试。" };
+    }
     const image = source.thumbnail.crop(normalized);
     const filePath = path.join(this.settingsStore.load().screenshot.saveDirectory, `screenshot-${Date.now()}.png`);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
