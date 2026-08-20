@@ -1,0 +1,18 @@
+{
+  "name": "dsh-web-canvas",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness Web Canvas：安全网页承载、结构化上下文、标注与 Agent 联动。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": { "node": ">=20" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": [] }
+  },
+  "files": ["lib/index.js", "lib/client.js", "cordis.patch.yml", "README.md"]
+}

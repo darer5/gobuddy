@@ -4,27 +4,27 @@ import net from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 
 export const defaultHarnessPackages = {
-  dsh: "@deepseek-ai/dsh@0.1.0-rc.6",
-  sdk: "@deepseek-ai/dsh-sdk-client@0.0.1-rc.1",
-  invariants: "@deepseek-ai/dsh-invariants@^0.1.0-rc.6",
-  scope: "@deepseek-ai/dsh-scope@^0.1.0-rc.6",
-  fs: "@deepseek-ai/dsh-fs@^0.1.0-rc.6",
-  atomicWrite: "@deepseek-ai/dsh-atomic-write@^0.1.0-rc.6",
-  bashLocal: "@deepseek-ai/dsh-bash-local@^0.1.0-rc.6",
-  shell: "@deepseek-ai/dsh-shell@^0.1.0-rc.6",
-  sandbox: "@deepseek-ai/dsh-sandbox@^0.1.0-rc.6",
-  compaction: "@deepseek-ai/dsh-compaction@^0.1.0-rc.6",
-  workflow: "@deepseek-ai/dsh-workflow@^0.1.0-rc.6",
-  codeRuntime: "@deepseek-ai/dsh-code-runtime@^0.1.0-rc.6",
-  timeout: "@deepseek-ai/dsh-timeout@^0.1.0-rc.6",
-  sessionTelemetry: "@deepseek-ai/dsh-session-telemetry@^0.1.0-rc.6",
-  anonymousUserId: "@deepseek-ai/dsh-anonymous-user-id@^0.1.0-rc.6",
-  subprocess: "@deepseek-ai/dsh-subprocess@^0.1.0-rc.6",
-  sdkProtocol: "@deepseek-ai/dsh-sdk-protocol@^0.0.1-rc.1",
-  outputRetention: "@deepseek-ai/dsh-output-retention@^0.1.0-rc.6",
-  sessionTitleLlm: "@deepseek-ai/dsh-session-title-llm@^0.1.0-rc.6",
-  spill: "@deepseek-ai/dsh-spill@^0.1.0-rc.6",
-  subagentDriver: "@deepseek-ai/dsh-subagent-in-process-driver@^0.1.0-rc.6",
+  dsh: "@deepseek-ai/dsh@0.1.0-rc.8",
+  sdk: "@deepseek-ai/dsh-sdk-client@0.1.0-rc.8",
+  invariants: "@deepseek-ai/dsh-invariants@0.1.0-rc.8",
+  scope: "@deepseek-ai/dsh-scope@0.1.0-rc.8",
+  fs: "@deepseek-ai/dsh-fs@0.1.0-rc.8",
+  atomicWrite: "@deepseek-ai/dsh-atomic-write@0.1.0-rc.8",
+  bashLocal: "@deepseek-ai/dsh-bash-local@0.1.0-rc.8",
+  shell: "@deepseek-ai/dsh-shell@0.1.0-rc.8",
+  sandbox: "@deepseek-ai/dsh-sandbox@0.1.0-rc.8",
+  compaction: "@deepseek-ai/dsh-compaction@0.1.0-rc.8",
+  workflow: "@deepseek-ai/dsh-workflow@0.1.0-rc.8",
+  codeRuntime: "@deepseek-ai/dsh-code-runtime@0.1.0-rc.8",
+  timeout: "@deepseek-ai/dsh-timeout@0.1.0-rc.8",
+  sessionTelemetry: "@deepseek-ai/dsh-session-telemetry@0.1.0-rc.8",
+  anonymousUserId: "@deepseek-ai/dsh-anonymous-user-id@0.1.0-rc.8",
+  subprocess: "@deepseek-ai/dsh-subprocess@0.1.0-rc.8",
+  sdkProtocol: "@deepseek-ai/dsh-sdk-protocol@0.1.0-rc.8",
+  outputRetention: "@deepseek-ai/dsh-output-retention@0.1.0-rc.8",
+  sessionTitleLlm: "@deepseek-ai/dsh-session-title-llm@0.1.0-rc.8",
+  spill: "@deepseek-ai/dsh-spill@0.1.0-rc.8",
+  subagentDriver: "@deepseek-ai/dsh-subagent-in-process-driver@0.1.0-rc.8",
   cordisGroup: "@deepseek-ai/cordis-plugin-group@^1.0.1",
 };
 
@@ -52,6 +52,8 @@ export class HarnessRuntimeManager {
     externalRestartPollMs = EXTERNAL_RESTART_POLL_MS,
     autoRestartMax = AUTO_RESTART_MAX,
     autoRestartWindowMs = AUTO_RESTART_WINDOW_MS,
+    extraEnv = {},
+    localPresetPlugins = {},
   }) {
     this.userDataPath = userDataPath;
     this.writableRuntimePath = path.join(userDataPath, runtimeDirName);
@@ -68,6 +70,8 @@ export class HarnessRuntimeManager {
     this.externalRestartPollMs = externalRestartPollMs;
     this.autoRestartMax = autoRestartMax;
     this.autoRestartWindowMs = autoRestartWindowMs;
+    this.extraEnv = extraEnv;
+    this.localPresetPlugins = localPresetPlugins;
     this.status = {
       state: "not-installed",
       message: "DeepSeek Harness runtime 尚未安装。",
@@ -240,12 +244,24 @@ export class HarnessRuntimeManager {
     const bundles = Array.isArray(manifest.dsh?.profile?.bundles)
       ? [...manifest.dsh.profile.bundles]
       : ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
+    const seeded = [];
+    const skipped = [];
     let changed = false;
     for (const preset of presets) {
-      if (!bundles.includes(preset)) {
-        bundles.push(preset);
-        changed = true;
+      if (bundles.includes(preset)) {
+        // 已在 profile 中声明的插件不再重复追加，也无需重新校验。
+        continue;
       }
+      if (!this.isUsablePresetPlugin(preset)) {
+        // 实体缺失或 package.json 没有 dsh.bundle.patch 的插件必须跳过，
+        // 否则 profile boot 会因为坏插件（如 npm 撞名的 aegis@0.1.0）崩溃。
+        skipped.push(preset);
+        this.log("harness.profile.seedSkipped", { preset, reason: "missing entity or dsh.bundle.patch" });
+        continue;
+      }
+      bundles.push(preset);
+      seeded.push(preset);
+      changed = true;
     }
     if (!changed) {
       return;
@@ -259,24 +275,126 @@ export class HarnessRuntimeManager {
     };
     fs.mkdirSync(profileDir, { recursive: true });
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
-    this.log("harness.profile.seeded", { presets, bundles });
+    this.log("harness.profile.seeded", { presets: seeded, skipped, bundles });
+  }
+
+  /**
+   * DSH 的 healProfilesModuleFallback 只会在 $DSH_HOME/profiles/node_modules
+   * 下为 dsh 包自身依赖树里的包建符号链接；preset 插件以 --no-save 装在
+   * runtime 的 node_modules，不在那个依赖树里，cordis loader 从 profile
+   * 目录解析插件包名时永远找不到它们。这里按同样的机制为每个可用的 preset
+   * 插件补建链接，幂等且能修复悬空/错位链接（如 app 被移动后 bundle 路径变化）。
+   */
+  ensureProfileModuleLinks() {
+    const presets = this.readPresetPlugins();
+    if (presets.length === 0) {
+      return;
+    }
+    const linksDir = path.join(this.homePath, "profiles", "node_modules");
+    let linked = 0;
+    for (const preset of presets) {
+      if (!this.isUsablePresetPlugin(preset)) {
+        continue;
+      }
+      const target = path.join(this.runtimePath, "node_modules", preset);
+      const link = path.join(linksDir, preset);
+      try {
+        fs.mkdirSync(path.dirname(link), { recursive: true });
+        const valid = (() => {
+          try {
+            return fs.lstatSync(link).isSymbolicLink()
+              && fs.realpathSync(link) === fs.realpathSync(target);
+          } catch {
+            return false;
+          }
+        })();
+        if (valid) {
+          continue;
+        }
+        fs.rmSync(link, { recursive: true, force: true });
+        fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+        linked += 1;
+      } catch (error) {
+        this.log("harness.profile.linkFailed", { preset, message: error.message });
+      }
+    }
+    if (linked > 0) {
+      this.log("harness.profile.linked", { linked });
+    }
+  }
+
+  /**
+   * Source development does not run from electron-builder's extraResources,
+   * so copy only explicitly provided in-repo plugins into the managed runtime.
+   * Packaged builds pass no entries and continue to use the bundled runtime.
+   */
+  ensureLocalPresetPlugins() {
+    const entries = Object.entries(this.localPresetPlugins ?? {});
+    if (entries.length === 0) return;
+    const manifestPath = path.join(this.runtimePath, "gobuddy-harness-runtime.json");
+    let manifest = {};
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")); } catch { /* create below */ }
+    const presets = new Set(Array.isArray(manifest.presetPlugins) ? manifest.presetPlugins : []);
+    for (const [name, source] of entries) {
+      if (!fs.existsSync(path.join(source, "package.json"))) {
+        this.log("harness.localPreset.missing", { name, source });
+        continue;
+      }
+      const target = path.join(this.runtimePath, "node_modules", name);
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.cpSync(source, target, { recursive: true });
+      presets.add(name);
+    }
+    manifest.presetPlugins = [...presets];
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  }
+
+  /**
+   * A preset plugin is usable only when its package.json declares
+   * `dsh.bundle.patch` and that patch file actually exists. Anything else
+   * (missing entity, npm 撞名包) would abort the whole profile boot.
+   */
+  isUsablePresetPlugin(name) {
+    try {
+      const pkgDir = path.join(this.runtimePath, "node_modules", name);
+      const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+      const patch = pkg.dsh?.bundle?.patch;
+      return typeof patch === "string" && patch.length > 0
+        && fs.existsSync(path.join(pkgDir, patch));
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Read the preset plugin list recorded next to the bundled runtime
    * manifest by prepare-harness-runtime.mjs.
+   * Falls back to the bundled runtime's manifest when the active runtime has
+   * none — an abnormally packaged app may carry the manifest without
+   * node_modules, and its plugins then live in the writable runtime instead.
    * @returns {string[]} preset plugin package names (empty when absent).
    */
   readPresetPlugins() {
-    try {
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(this.runtimePath, "gobuddy-harness-runtime.json"), "utf8"),
-      );
-      const presets = manifest.presetPlugins;
-      return Array.isArray(presets) ? presets.filter((name) => typeof name === "string") : [];
-    } catch {
-      return [];
+    const readFrom = (runtimeDir) => {
+      try {
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(runtimeDir, "gobuddy-harness-runtime.json"), "utf8"),
+        );
+        const presets = manifest.presetPlugins;
+        return Array.isArray(presets) ? presets.filter((name) => typeof name === "string") : [];
+      } catch {
+        return [];
+      }
+    };
+    const presets = readFrom(this.runtimePath);
+    if (presets.length > 0) {
+      return presets;
     }
+    if (this.bundledRuntimePath && this.bundledRuntimePath !== this.runtimePath) {
+      return readFrom(this.bundledRuntimePath);
+    }
+    return [];
   }
 
   async install() {
@@ -289,7 +407,15 @@ export class HarnessRuntimeManager {
     this.runtimePath = this.writableRuntimePath;
     fs.mkdirSync(this.runtimePath, { recursive: true });
 
-    await runCommand(process.platform === "win32" ? "npm.cmd" : "npm", [
+    const { command: npmCommand, binDir } = resolveNpmCommand();
+    const npmEnv = { ...process.env };
+    if (binDir) {
+      // npm 是 shell 脚本（shebang `#!/usr/bin/env node`），GUI 启动的应用
+      // PATH 不含 Homebrew/nvm 目录；把 npm 所在目录补进 PATH，避免
+      // `spawn npm ENOENT` 以及 env node 找不到。
+      npmEnv.PATH = `${binDir}${path.delimiter}${npmEnv.PATH ?? ""}`;
+    }
+    await runCommand(npmCommand, [
       "install",
       "--prefix",
       this.runtimePath,
@@ -299,8 +425,13 @@ export class HarnessRuntimeManager {
       "--package-lock=false",
       "--legacy-peer-deps",
       ...Object.values(this.packages),
-    ], { cwd: this.runtimePath }).catch((error) => {
-      this.setStatus("error", `DeepSeek Harness runtime 下载失败：${error.message}`);
+    ], { cwd: this.runtimePath, env: npmEnv }).catch((error) => {
+      const hint = /ENOENT/.test(error.message)
+        ? "：未找到 npm。macOS 从桌面启动的应用不会继承 shell 的 PATH；"
+          + "请从终端执行一次 `npm run electron`，或设置环境变量 GOBUDDY_NPM_PATH"
+          + " 指向 npm 绝对路径（Homebrew Intel 为 /usr/local/bin/npm，Apple Silicon 为 /opt/homebrew/bin/npm）后重试。"
+        : "";
+      this.setStatus("error", `DeepSeek Harness runtime 下载失败：${error.message}${hint}`);
       throw error;
     });
 
@@ -335,7 +466,9 @@ export class HarnessRuntimeManager {
     this.setStatus("starting", "正在启动 DeepSeek Harness runtime...");
     this.runtimePath = this.resolveRuntimePath();
     fs.mkdirSync(this.homePath, { recursive: true });
+    this.ensureLocalPresetPlugins();
     this.ensureProfileBundles();
+    this.ensureProfileModuleLinks();
     this.port = await findAvailablePort(3080);
     this.terminating = false;
     this.autoRestartCount = 0;
@@ -367,6 +500,7 @@ export class HarnessRuntimeManager {
         DSH_MODEL: aiSettings.model || process.env.DSH_MODEL || "deepseek-chat",
         DSH_HOME: this.homePath,
         DSH_TELEMETRY_DISABLED: process.env.DSH_TELEMETRY_DISABLED || "1",
+        ...this.extraEnv,
       },
       windowsHide: true,
     });
@@ -556,6 +690,29 @@ function resolveNodeCommand() {
   }
 
   return process.env.GOBUDDY_NODE_PATH || process.env.npm_node_execpath || "node";
+}
+
+/**
+ * Resolve an npm executable for the writable-runtime install fallback.
+ * macOS GUI-launched apps inherit only the system default PATH (no Homebrew /
+ * nvm directories), so spawning bare `npm` fails with ENOENT. Prefer an
+ * explicit GOBUDDY_NPM_PATH, then probe the well-known Homebrew locations
+ * before falling back to a PATH lookup.
+ * @returns {{command: string, binDir: string | null}}
+ */
+function resolveNpmCommand() {
+  const explicit = process.env.GOBUDDY_NPM_PATH;
+  if (explicit && fs.existsSync(explicit)) {
+    return { command: explicit, binDir: path.dirname(explicit) };
+  }
+  if (process.platform === "darwin") {
+    for (const candidate of ["/opt/homebrew/bin/npm", "/usr/local/bin/npm"]) {
+      if (fs.existsSync(candidate)) {
+        return { command: candidate, binDir: path.dirname(candidate) };
+      }
+    }
+  }
+  return { command: process.platform === "win32" ? "npm.cmd" : "npm", binDir: null };
 }
 
 function findAvailablePort(preferredPort) {

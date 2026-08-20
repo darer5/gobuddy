@@ -34,10 +34,14 @@ export const PRESET_PLUGINS = {
   // 会失败；使用由已安装包打包的 tgz（运行时依赖 zod 由 dsh 运行时提供）。
   "dsh-at-file": "file:plugins/dsh-at-file-0.6.0.tgz",
   "dsh-file-uploads": "github:l541402398/dsh-file-uploads#main",
-  "aegis": "0.1.0",
   // 仓库内源码插件：用 file: 相对仓库根目录的路径（见 installPresetPlugins）。
   "dsh-weread-sidebar": "file:plugins/dsh-weread-sidebar",
+  "dsh-web-canvas": "file:plugins/dsh-web-canvas",
   "graph-memory": "file:plugins/graph-memory-1.6.0-beta.1.tgz",
+  // 注意：不要用裸包名 "aegis" 指代插件。npm 上的 aegis@0.1.0 是一个无关的
+  // 2012 年老库（killdream/aegis），没有 dsh.bundle 声明，profile boot 会直接
+  // 崩溃（"declares no dsh.bundle in its package.json"）。若 aegis 插件有正确
+  // 的发布源（如 GitHub 仓库），请显式写完整 spec 后再加回。
 };
 
 /** Platform-aware npm executable name (npm.cmd on Windows, npm elsewhere). */

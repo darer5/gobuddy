@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 const validEvents = new Set([
   "settings:changed",
@@ -6,6 +6,8 @@ const validEvents = new Set([
   "chat:toolCall",
   "chat:toolResult",
   "chat:status",
+  "web-canvas:state",
+  "web-canvas:error",
 ]);
 
 contextBridge.exposeInMainWorld("goBuddy", {
@@ -37,6 +39,21 @@ contextBridge.exposeInMainWorld("goBuddy", {
     stop: () => ipcRenderer.invoke("harness:stop"),
     listSessions: () => ipcRenderer.invoke("harness:listSessions"),
     listMessages: (sessionId) => ipcRenderer.invoke("harness:listMessages", sessionId),
+  },
+  webCanvas: {
+    open: (payload) => ipcRenderer.invoke("web-canvas:open", payload),
+    close: () => ipcRenderer.invoke("web-canvas:close"),
+    setBounds: (bounds) => ipcRenderer.invoke("web-canvas:setBounds", bounds),
+    navigate: (url) => ipcRenderer.invoke("web-canvas:navigate", { url }),
+    back: () => ipcRenderer.invoke("web-canvas:back"),
+    forward: () => ipcRenderer.invoke("web-canvas:forward"),
+    reload: () => ipcRenderer.invoke("web-canvas:reload"),
+    setTool: (tool) => ipcRenderer.invoke("web-canvas:setTool", tool),
+    undo: () => ipcRenderer.invoke("web-canvas:undo"),
+    deleteAnnotation: (id) => ipcRenderer.invoke("web-canvas:deleteAnnotation", id),
+    focusAnnotation: (id) => ipcRenderer.invoke("web-canvas:focusAnnotation", id),
+    getState: () => ipcRenderer.invoke("web-canvas:getState"),
+    capture: () => ipcRenderer.invoke("web-canvas:capture"),
   },
   on: (event, callback) => {
     if (!validEvents.has(event)) {

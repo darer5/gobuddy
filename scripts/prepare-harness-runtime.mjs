@@ -7,6 +7,7 @@ import {
   installPresetPlugins,
   writeRuntimeManifest,
 } from "./harness-runtime-utils.mjs";
+import { defaultHarnessPackages } from "../electron/main/harness-runtime.mjs";
 
 /**
  * Prepare the bundled DeepSeek Harness runtime at vendor/HarnessRuntimeManaged
@@ -28,12 +29,13 @@ const source = process.env.GOBUDDY_HARNESS_RUNTIME || defaultSource;
 const vendorRoot = path.join(process.cwd(), "vendor");
 const target = path.join(vendorRoot, "HarnessRuntimeManaged");
 const dshEntry = path.join(source, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+const expectedDshVersion = defaultHarnessPackages.dsh.slice(defaultHarnessPackages.dsh.lastIndexOf("@") + 1);
 
 assertInsideVendor(target);
 
 if (isRuntimeUpToDate(target)) {
   console.log(`Bundled Harness runtime is up to date, skipping copy/install: ${target}`);
-} else if (fs.existsSync(dshEntry)) {
+} else if (fs.existsSync(dshEntry) && readDshVersion(source) === expectedDshVersion) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.cpSync(source, target, {
@@ -53,7 +55,7 @@ if (isRuntimeUpToDate(target)) {
   console.log(`Prepared bundled Harness runtime: ${target}`);
 } else {
   console.log(
-    `No source Harness runtime found at:\n  ${source}\n`
+    `No ${expectedDshVersion} source Harness runtime found at:\n  ${source}\n`
     + `Bootstrapping the bundled runtime from scratch via npm instead.\n`
     + `(Set GOBUDDY_HARNESS_RUNTIME to a prepared runtime to copy from.)`,
   );
@@ -75,14 +77,10 @@ function isRuntimeUpToDate(runtimeDir) {
   if (!fs.existsSync(dshPkg)) {
     return false;
   }
-  // Same dsh core version as the source runtime.
-  try {
-    const srcVersion = JSON.parse(fs.readFileSync(dshPkg, "utf8")).version;
-    const srcPkg = path.join(source, "node_modules", "@deepseek-ai", "dsh", "package.json");
-    if (!fs.existsSync(srcPkg) || JSON.parse(fs.readFileSync(srcPkg, "utf8")).version !== srcVersion) {
-      return false;
-    }
-  } catch {
+  // The bundled runtime must match the version pinned by the application.
+  // Comparing only with a pre-existing local runtime can silently preserve an
+  // old Harness release after the application pin is upgraded.
+  if (readDshVersion(runtimeDir) !== expectedDshVersion) {
     return false;
   }
   // Every preset plugin must be physically present.
@@ -107,6 +105,15 @@ function isRuntimeUpToDate(runtimeDir) {
     return false;
   }
   return true;
+}
+
+function readDshVersion(runtimeDir) {
+  try {
+    const pkg = path.join(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "package.json");
+    return JSON.parse(fs.readFileSync(pkg, "utf8")).version;
+  } catch {
+    return null;
+  }
 }
 
 function assertInsideVendor(targetPath) {

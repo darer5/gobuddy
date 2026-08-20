@@ -2,7 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 export default async function afterPack(context) {
-  const resourcesDir = path.join(context.appOutDir, "resources");
+  const resourcesDir = context.electronPlatformName === "darwin"
+    ? path.join(
+      context.appOutDir,
+      `${context.packager.appInfo.productFilename}.app`,
+      "Contents",
+      "Resources",
+    )
+    : path.join(context.appOutDir, "resources");
   const vendorRoot = path.join(context.packager.projectDir, "vendor");
 
   copyResource({

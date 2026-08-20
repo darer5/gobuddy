@@ -178,6 +178,16 @@ window.__ModuleLoader__.load({
       const place = () => {
         const root = sidebarRoot();
         if (root === undefined) return false;
+        // Web Canvas 存在时，微信读书必须紧贴在它前面，确保功能顺序为：
+        // 微信读书 → Web Canvas → 任务看板。
+        const webCanvas = root.querySelector('[data-dsh-web-canvas-entry]');
+        if (webCanvas !== null && webCanvas.parentElement === root) {
+          if (entry.parentElement === root && entry.nextElementSibling === webCanvas) {
+            return true;
+          }
+          root.insertBefore(entry, webCanvas);
+          return true;
+        }
         // 任务看板存在时：入口必须紧贴在看板上方（插到它前面）。即使入口
         // 已在 root 中，也要检查相对位置——任务看板可能晚于本入口注入，
         // 把自己插到了本入口前面，需要重新夺回"看板上方"的位置。
@@ -198,7 +208,15 @@ window.__ModuleLoader__.load({
 
       let root = undefined;
       let placed = false;
-      const rootObserver = new MutationObserver(() => tryPlace());
+      let placementFrame = 0;
+      const schedulePlacement = () => {
+        if (placementFrame !== 0) return;
+        placementFrame = requestAnimationFrame(() => {
+          placementFrame = 0;
+          tryPlace();
+        });
+      };
+      const rootObserver = new MutationObserver(schedulePlacement);
       const tryPlace = () => {
         if (root !== undefined && !root.isConnected) {
           rootObserver.disconnect();
@@ -215,7 +233,7 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const waitObserver = new MutationObserver(() => tryPlace());
+      const waitObserver = new MutationObserver(schedulePlacement);
       waitObserver.observe(document.body, { childList: true, subtree: true });
 
       // 面板打开状态反映到入口高亮（与任务看板一致）。
@@ -231,6 +249,7 @@ window.__ModuleLoader__.load({
       return () => {
         waitObserver.disconnect();
         rootObserver.disconnect();
+        if (placementFrame !== 0) cancelAnimationFrame(placementFrame);
         unsubscribe();
         entry.remove();
       };

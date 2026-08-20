@@ -7,6 +7,25 @@ import { spawn, spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { HarnessRuntimeManager } from "../electron/main/harness-runtime.mjs";
 
+function writeFakePresetPlugin(runtimePath, name, { patch = "./cordis.patch.yml" } = {}) {
+  const pkgDir = path.join(runtimePath, "node_modules", name);
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, "package.json"),
+    JSON.stringify(
+      patch
+        ? { name, version: "1.0.0", dsh: { bundle: { patch } } }
+        : { name, version: "1.0.0" },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  if (patch) {
+    fs.writeFileSync(path.join(pkgDir, patch), "- insert: []\n", "utf8");
+  }
+}
+
 test("harness runtime reports not-installed before runtime exists", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
   const runtime = new HarnessRuntimeManager({ userDataPath: dir });
@@ -327,6 +346,9 @@ test("ensureProfileBundles seeds preset plugins into a fresh profile", () => {
     JSON.stringify({ presetPlugins: ["dsh-better-sidebar", "dshmarket", "dsh-global-rules"] }),
     "utf8",
   );
+  for (const name of ["dsh-better-sidebar", "dshmarket", "dsh-global-rules"]) {
+    writeFakePresetPlugin(runtimePath, name);
+  }
 
   const runtime = new HarnessRuntimeManager({
     userDataPath: dir,
@@ -356,6 +378,7 @@ test("ensureProfileBundles appends only missing presets, preserving user bundles
     JSON.stringify({ presetPlugins: ["dsh-better-sidebar", "dshmarket"] }),
     "utf8",
   );
+  writeFakePresetPlugin(runtimePath, "dsh-better-sidebar");
 
   const profileDir = path.join(dir, "HarnessHomeManaged", "profiles", "web");
   fs.mkdirSync(profileDir, { recursive: true });
@@ -413,4 +436,102 @@ test("readPresetPlugins returns empty when manifest is missing or malformed", ()
   });
   runtime.runtimePath = path.join(dir, "HarnessRuntimeManaged");
   assert.deepEqual(runtime.readPresetPlugins(), []);
+});
+
+test("readPresetPlugins falls back to the bundled runtime manifest", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const bundledRuntimePath = path.join(dir, "BundledRuntime");
+  fs.mkdirSync(bundledRuntimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(bundledRuntimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["dsh-better-sidebar"] }),
+    "utf8",
+  );
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+    bundledRuntimePath,
+  });
+  runtime.runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  assert.deepEqual(runtime.readPresetPlugins(), ["dsh-better-sidebar"]);
+});
+
+test("ensureProfileBundles skips presets without a usable dsh.bundle.patch", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["good-plugin", "bad-plugin"] }),
+    "utf8",
+  );
+  writeFakePresetPlugin(runtimePath, "good-plugin");
+  // bad-plugin 的实体存在但没有 dsh.bundle.patch（如 npm 撞名的 aegis）。
+  writeFakePresetPlugin(runtimePath, "bad-plugin", { patch: null });
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileBundles();
+
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(dir, "HarnessHomeManaged", "profiles", "web", "package.json"), "utf8"),
+  );
+  assert.deepEqual(manifest.dsh.profile.bundles, [
+    "@deepseek-ai/dsh-base",
+    "@deepseek-ai/dsh-web-app",
+    "good-plugin",
+  ]);
+});
+
+test("ensureProfileModuleLinks links usable preset plugins for the profile loader", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["good-plugin", "bad-plugin"] }),
+    "utf8",
+  );
+  writeFakePresetPlugin(runtimePath, "good-plugin");
+  writeFakePresetPlugin(runtimePath, "bad-plugin", { patch: null });
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileModuleLinks();
+
+  const link = path.join(dir, "HarnessHomeManaged", "profiles", "node_modules", "good-plugin");
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
+  assert.equal(fs.realpathSync(link), fs.realpathSync(path.join(runtimePath, "node_modules", "good-plugin")));
+  assert.equal(
+    fs.existsSync(path.join(dir, "HarnessHomeManaged", "profiles", "node_modules", "bad-plugin")),
+    false,
+  );
+});
+
+test("ensureLocalPresetPlugins copies an in-repo plugin into the managed runtime", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-local-preset-"));
+  const source = path.join(dir, "source-plugin");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({ name: "local-plugin", dsh: { bundle: { patch: "./cordis.patch.yml" } } }));
+  fs.writeFileSync(path.join(source, "cordis.patch.yml"), "- insert: []\n");
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    localPresetPlugins: { "local-plugin": source },
+  });
+  fs.mkdirSync(runtime.runtimePath, { recursive: true });
+
+  runtime.ensureLocalPresetPlugins();
+
+  assert.equal(fs.existsSync(path.join(runtime.runtimePath, "node_modules", "local-plugin", "package.json")), true);
+  assert.deepEqual(runtime.readPresetPlugins(), ["local-plugin"]);
 });

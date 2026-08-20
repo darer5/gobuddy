@@ -7,8 +7,9 @@
  *   的 Harness 界面）发出的请求不会携带 Lax cookie，因此"iframe 直嵌"无法
  *   完成登录（这是 VSCode 微信读书插件在 Chromium 98 之后同样踩过的坑）。
  *
- *   解决办法：本插件在 127.0.0.1 上再监听一个端口，把 weread.qq.com 的内容
- *   以 http://127.0.0.1:<port>/weread/... 的形式提供给侧边栏 iframe。这样：
+ *   解决办法：本插件在 127.0.0.1 上再监听一个端口，把 weread.qq.com 及其
+ *   关联域名（cdn.weread.qq.com / rescdn.qqmail.com / oss.weread.qq.com）的
+ *   内容以 http://127.0.0.1:<port>/weread... 的形式提供给侧边栏 iframe。这样：
  *     - iframe 与 GUI 属于同一个 site（127.0.0.1，端口不影响 site），
  *       SameSite cookie 全部生效 → 扫码登录后登录态、阅读进度都能持久化；
  *     - iframe 的 origin（端口不同）与 GUI 的 origin 不同 → weread 页面上的
@@ -30,11 +31,38 @@ const name = "weread-sidebar";
 /** Services required before the proxy route can be mounted. */
 const inject = ["webServer"];
 
-/** 上游微信读书 origin（唯一允许的代理目标，不做开放代理）。 */
-const UPSTREAM_ORIGIN = "https://weread.qq.com";
+/**
+ * 上游域名白名单（不做开放代理，只允许转发到这些固定 origin）。
+ * prefix 是代理域上的访问前缀；第一个条目（weread 主站）额外承担代理域
+ * 根下的全部 SPA 请求（/api/*、/r/*、/web/* 等，见 resolveUpstream）。
+ */
+const UPSTREAMS = [
+  { origin: "https://weread.qq.com", prefix: "/weread", root: true },
+  { origin: "https://cdn.weread.qq.com", prefix: "/wereadcdn" },
+  { origin: "https://rescdn.qqmail.com", prefix: "/wereadrescdn" },
+  { origin: "https://oss.weread.qq.com", prefix: "/wereadoss" },
+  // 扫码登录链路：wxLogin.js 创建 open.weixin.qq.com 的二维码 iframe。
+  // 必须把这两个域名也代理回同源，才能改写 iframe 里的回跳地址，
+  // 否则扫码后页面会带着 code 跳去真实的 weread.qq.com（或直接劫持 GUI）。
+  { origin: "https://open.weixin.qq.com", prefix: "/wereadwx" },
+  { origin: "https://res.wx.qq.com", prefix: "/wereadwxres" },
+];
 
-/** 代理路由前缀（同时是 iframe 的访问前缀，见 lib/client.js）。 */
-const PROXY_PREFIX = "/weread";
+/** iframe 的访问前缀（weread 主站，见 lib/client.js）。 */
+const PROXY_PREFIX = UPSTREAMS[0].prefix;
+
+/** open.weixin.qq.com 扫码页的额外改写（仅对该域名响应生效）。 */
+const OPEN_WX_ORIGIN = "https://open.weixin.qq.com";
+const WX_PAGE_REWRITES = [
+  // 扫码成功后微信页默认 window.top.location=回调地址：会劫持整个 GUI。
+  // 改成 window.parent（微信读书侧边栏 iframe 自己）接收 code 完成登录。
+  ["window.top.location=t", "window.parent.location=t"],
+  // 扫码页内部以根相对路径引用的资源（二维码图片），补上 /wereadwx 前缀，
+  // 否则会被根路径兜底规则转发到 weread 主站。
+  // 注意：/api/check-login、/api/authorize 仅用于 https://localhost.weixin.qq.com
+  // 的桌面微信快捷登录探活，不能加前缀，否则会探测失败。
+  ['"/connect/qrcode', '"/wereadwx/connect/qrcode'],
+];
 
 /** 挂在 GUI 同源 webserver 上的配置路由：client 从这里拿到代理端口。 */
 const CONFIG_ROUTE = "/weread-proxy.json";
@@ -57,16 +85,32 @@ function isTextual(contentType) {
 }
 
 /**
- * 把响应文本里所有 weread.qq.com 的绝对 URL / 协议相对 URL 改写成代理前缀
- * /weread（相对当前文档解析，落在 http://127.0.0.1:<port>/weread/...）。
+ * 把响应文本里所有上游域名的绝对 URL / 协议相对 URL 改写成对应代理前缀
+ * （相对当前文档解析，落在 http://127.0.0.1:<port>/weread...）。
  * 用 split/join 而不是正则：语义等价、性能更好、无需转义。
  */
 function rewriteText(text) {
-  return text
-    .split(UPSTREAM_ORIGIN)
-    .join(PROXY_PREFIX)
-    .split("//weread.qq.com")
-    .join(PROXY_PREFIX);
+  let out = text;
+  for (const { origin, prefix } of UPSTREAMS) {
+    out = out.split(origin).join(prefix);
+    // 协议相对 URL（//host/path）
+    const bare = origin.replace(/^https?:\/\//, "");
+    out = out.split("//" + bare).join(prefix);
+  }
+  // Nuxt app.baseURL 改写为代理前缀：路由在 /weread/ 下与 SSR payload 的
+  // path:"/" 保持一致，否则 SPA 启动后会被踢回代理根并渲染 404。
+  // 该写法只命中 HTML 内联的 window.__NUXT__.config（bundle 中无此字面量）。
+  out = out.replace(/(app\s*:\s*\{\s*baseURL\s*:\s*)"\/"/, '$1"/weread/"');
+  // 扫码登录：微信 qrconnect 会校验 redirect_uri 必须属于 appid 注册域名
+  // weread.qq.com，而这里页面自身地址是代理地址。把 weread 传给 WxLogin 的
+  // 回跳地址固定为真实的微信读书首页（放在域名改写之后，避免被再次改写；
+  // 扫码后的实际回跳目标由 WX_PAGE_REWRITES 落到侧边栏 iframe）。
+  out = out
+    .split('NN(r.containerId,window.location.href')
+    .join('NN(r.containerId,"https://weread.qq.com/"')
+    .split('FU(r.containerId,window.location.href')
+    .join('FU(r.containerId,"https://weread.qq.com/"');
+  return out;
 }
 
 /**
@@ -86,7 +130,23 @@ function cleanCookie(cookie) {
 }
 
 /**
- * 代理服务器处理器：把浏览器对 /weread/* 的请求转发给 weread.qq.com，
+ * 把代理域上的路径映射为上游请求目标：
+ *   - /weread/*、/wereadcdn/* 等前缀路由 → 对应上游域名；
+ *   - 其余根相对路径（SPA 的 /api/*、/r/*、/web/*、/_nuxt/* 等）→ weread 主站，
+ *     与真实站点上的根相对请求行为一致。
+ * @returns {{ origin: string, path: string }}
+ */
+function resolveUpstream(pathname) {
+  for (const { origin, prefix } of UPSTREAMS) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) {
+      return { origin, path: pathname === prefix ? "/" : pathname.slice(prefix.length) };
+    }
+  }
+  return { origin: UPSTREAMS[0].origin, path: pathname };
+}
+
+/**
+ * 代理服务器处理器：把浏览器对代理域的请求转发给对应的微信读书上游域名，
  * 并把响应做 URL 改写 + cookie 清洗后返回。3xx 重定向的 Location 同样改写，
  * 让浏览器在代理域内继续跟随（每一步都由浏览器自己处理 Set-Cookie）。
  * @param {import('node:http').IncomingMessage} req
@@ -101,14 +161,8 @@ function proxyHandler(req, res) {
     res.end();
     return;
   }
-  const pathname = url.pathname;
-  if (pathname !== PROXY_PREFIX && !pathname.startsWith(PROXY_PREFIX + "/")) {
-    res.writeHead(404);
-    res.end();
-    return;
-  }
-  const upstreamPath = pathname === PROXY_PREFIX ? "/" : pathname.slice(PROXY_PREFIX.length);
-  const upstreamUrl = `${UPSTREAM_ORIGIN}${upstreamPath}${url.search}`;
+  const { origin, path: upstreamPath } = resolveUpstream(url.pathname);
+  const upstreamUrl = `${origin}${upstreamPath}${url.search}`;
 
   const headers = {
     "accept-encoding": "identity",
@@ -133,7 +187,13 @@ function proxyHandler(req, res) {
       let body = Buffer.concat(chunks);
       const contentType = String(up.headers["content-type"] ?? "");
       if (isTextual(contentType)) {
-        body = Buffer.from(rewriteText(body.toString("utf8")), "utf8");
+        let text = rewriteText(body.toString("utf8"));
+        if (origin === OPEN_WX_ORIGIN) {
+          for (const [from, to] of WX_PAGE_REWRITES) {
+            text = text.split(from).join(to);
+          }
+        }
+        body = Buffer.from(text, "utf8");
       }
       const outHeaders = {
         "content-type": contentType,
@@ -164,7 +224,7 @@ function proxyHandler(req, res) {
   upstream.on("error", () => {
     if (!res.headersSent) {
       res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-      res.end("dsh-weread-sidebar: cannot reach weread.qq.com");
+      res.end("dsh-weread-sidebar: cannot reach " + origin);
     }
   });
   req.pipe(upstream);

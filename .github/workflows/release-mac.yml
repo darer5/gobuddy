@@ -1,9 +1,10 @@
-name: Release Intel macOS DMG
+name: Release GoBuddy installers
 
 on:
   push:
     tags:
       - "v*"
+      - "V*"
   workflow_dispatch:
 
 permissions:
@@ -45,16 +46,64 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Publish DMG to GitHub Release
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: release/GoBuddy-*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    name: Build GoBuddy Windows x64 EXE
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (x64)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          architecture: x64
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Windows x64 installer
+        run: npm run dist:win -- --publish never
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/GoBuddy-*-Setup.exe
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-mac-intel, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Publish installers
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            TAG="v$(node -p "require('./package.json').version")"
+            TAG="V0.4"
           fi
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
-          gh release upload "$TAG" release/GoBuddy-*.dmg --clobber
-          echo "Published GoBuddy DMG to release $TAG"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$TAG"
+          gh release upload "$TAG" installers/* --clobber

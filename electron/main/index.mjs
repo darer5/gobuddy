@@ -5,6 +5,7 @@ import squirrelStartup from "electron-squirrel-startup";
 import {
   app,
   BrowserWindow,
+  WebContentsView,
   Menu,
   Tray,
   ipcMain,
@@ -15,6 +16,7 @@ import {
   nativeImage,
   shell,
   screen,
+  session,
 } from "electron";
 import { SettingsStore } from "./settings.mjs";
 import { GoBuddyDatabase } from "./database.mjs";
@@ -23,6 +25,7 @@ import { ScreenshotController } from "./screenshot.mjs";
 import { KnowledgeService } from "./knowledge-service.mjs";
 import { HarnessRuntimeManager } from "./harness-runtime.mjs";
 import { ChatAgentService } from "./chat-agent.mjs";
+import { WebCanvasController } from "./web-canvas.mjs";
 
 if (squirrelStartup) {
   app.quit();
@@ -40,6 +43,7 @@ let knowledgeService;
 let harnessRuntime;
 let chatAgent;
 let loadedHarnessUrl = null;
+let webCanvasController;
 
 app.setName("GoBuddy");
 
@@ -58,6 +62,10 @@ app.whenReady().then(async () => {
     settingsStore,
     runtimeDirName: "HarnessRuntimeManaged",
     bundledRuntimePath: path.join(process.resourcesPath, "HarnessRuntimeManaged"),
+    localPresetPlugins: app.isPackaged ? {} : {
+      "dsh-web-canvas": path.join(app.getAppPath(), "plugins", "dsh-web-canvas"),
+      "dsh-weread-sidebar": path.join(app.getAppPath(), "plugins", "dsh-weread-sidebar"),
+    },
   });
   appendMainLog("harnessRuntime.created", {
     bundledRuntimePath: path.join(process.resourcesPath, "HarnessRuntimeManaged"),
@@ -65,6 +73,17 @@ app.whenReady().then(async () => {
 
   createMainWindow();
   appendMainLog("mainWindow.created");
+  webCanvasController = new WebCanvasController({
+    mainWindow,
+    WebContentsView,
+    session,
+    shell,
+    userDataPath: app.getPath("userData"),
+    preloadPath: getPreloadPath("web-canvas.mjs"),
+    sendEvent,
+  });
+  harnessRuntime.extraEnv = await webCanvasController.startBridge();
+  appendMainLog("webCanvas.created", { bridgeReady: true });
   createTray();
   appendMainLog("tray.created");
   wireIpc();
@@ -102,6 +121,7 @@ app.whenReady().then(async () => {
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   harnessRuntime?.stop({ notify: false });
+  webCanvasController?.destroy();
 });
 
 app.on("window-all-closed", (event) => {
@@ -171,6 +191,10 @@ function createMainWindow() {
     }
     shell.openExternal(url).catch((error) => database?.logEvent("window.open.external.failed", false, error.message));
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    appendMainLog("window.preload.failed", { preloadPath, message: error.message, stack: error.stack });
   });
 
   loadHarnessSplash(mainWindow, "正在启动 DeepSeek Harness...").catch((error) => {
@@ -268,6 +292,33 @@ function wireIpc() {
   ipcMain.handle("harness:stop", () => chatAgent.stop());
   ipcMain.handle("harness:listSessions", () => chatAgent.listSessions());
   ipcMain.handle("harness:listMessages", (_, sessionId) => chatAgent.listMessages(sessionId));
+  ipcMain.handle("web-canvas:open", (_, payload) => webCanvasController.open(payload));
+  ipcMain.handle("web-canvas:close", () => webCanvasController.close());
+  ipcMain.handle("web-canvas:setBounds", (_, bounds) => webCanvasController.setBounds(bounds));
+  ipcMain.handle("web-canvas:navigate", (_, payload) => webCanvasController.navigate(payload));
+  ipcMain.handle("web-canvas:back", () => webCanvasController.goBack());
+  ipcMain.handle("web-canvas:forward", () => webCanvasController.goForward());
+  ipcMain.handle("web-canvas:reload", () => webCanvasController.reload());
+  ipcMain.handle("web-canvas:setTool", (_, tool) => webCanvasController.setTool(tool));
+  ipcMain.handle("web-canvas:undo", () => webCanvasController.undo());
+  ipcMain.handle("web-canvas:deleteAnnotation", (_, id) => webCanvasController.deleteAnnotation(id));
+  ipcMain.handle("web-canvas:focusAnnotation", (_, id) => webCanvasController.focusAnnotation(id));
+  ipcMain.handle("web-canvas:getState", () => webCanvasController.getState());
+  ipcMain.handle("web-canvas:capture", () => webCanvasController.captureViewport());
+  ipcMain.on("web-canvas:annotation-create", (event, annotation) => {
+    if (event.sender === webCanvasController?.view?.webContents) webCanvasController.saveAnnotation(annotation);
+  });
+  ipcMain.on("web-canvas:annotation-delete", (event, id) => {
+    if (event.sender === webCanvasController?.view?.webContents) webCanvasController.deleteAnnotation(id);
+  });
+  ipcMain.on("web-canvas:selection", (event, text) => {
+    if (event.sender !== webCanvasController?.view?.webContents || !webCanvasController.currentContext) return;
+    webCanvasController.currentContext.selection = text ? { text: String(text).slice(0, 4000) } : undefined;
+    webCanvasController.emitState();
+  });
+  ipcMain.on("web-canvas:annotation-status", (event, payload) => {
+    if (event.sender === webCanvasController?.view?.webContents) webCanvasController.setAnnotationStatus(payload ?? {});
+  });
 }
 
 function applyHotkeyRegistration(hotkeys, previousHotkeys) {
