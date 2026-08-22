@@ -260,7 +260,10 @@ test("harness runtime reports termination signals and captures stderr", async ()
   await runtime.start();
   await waitForCondition(() => runtime.getStatus().state === "error", 4000);
 
-  assert.match(runtime.status.message, /信号 SIGTERM/);
+  assert.match(
+    runtime.status.message,
+    process.platform === "win32" ? /退出码 1/ : /信号 SIGTERM/,
+  );
   assert.match(fs.readFileSync(path.join(dir, "gobuddy-main.log"), "utf8"), /runtime-diagnostic/);
 });
 
