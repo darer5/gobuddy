@@ -63,8 +63,8 @@ app.whenReady().then(async () => {
     runtimeDirName: "HarnessRuntimeManaged",
     bundledRuntimePath: path.join(process.resourcesPath, "HarnessRuntimeManaged"),
     localPresetPlugins: app.isPackaged ? {} : {
+      "gobuddy-ui": path.join(app.getAppPath(), "plugins", "gobuddy-ui"),
       "dsh-web-canvas": path.join(app.getAppPath(), "plugins", "dsh-web-canvas"),
-      "dsh-weread-sidebar": path.join(app.getAppPath(), "plugins", "dsh-weread-sidebar"),
     },
   });
   appendMainLog("harnessRuntime.created", {
@@ -292,19 +292,31 @@ function wireIpc() {
   ipcMain.handle("harness:stop", () => chatAgent.stop());
   ipcMain.handle("harness:listSessions", () => chatAgent.listSessions());
   ipcMain.handle("harness:listMessages", (_, sessionId) => chatAgent.listMessages(sessionId));
+  ipcMain.handle("harness:defaultWorkspace", () => {
+    const workspacePath = path.join(app.getPath("userData"), "Conversations");
+    fs.mkdirSync(workspacePath, { recursive: true });
+    return workspacePath;
+  });
   ipcMain.handle("web-canvas:open", (_, payload) => webCanvasController.open(payload));
   ipcMain.handle("web-canvas:close", () => webCanvasController.close());
+  ipcMain.handle("web-canvas:setSuspended", (_, value) => webCanvasController.setSuspended(value));
   ipcMain.handle("web-canvas:setBounds", (_, bounds) => webCanvasController.setBounds(bounds));
   ipcMain.handle("web-canvas:navigate", (_, payload) => webCanvasController.navigate(payload));
   ipcMain.handle("web-canvas:back", () => webCanvasController.goBack());
   ipcMain.handle("web-canvas:forward", () => webCanvasController.goForward());
   ipcMain.handle("web-canvas:reload", () => webCanvasController.reload());
+  ipcMain.handle("web-canvas:setReadingMode", (_, value) => webCanvasController.setReadingMode(value));
   ipcMain.handle("web-canvas:setTool", (_, tool) => webCanvasController.setTool(tool));
   ipcMain.handle("web-canvas:undo", () => webCanvasController.undo());
   ipcMain.handle("web-canvas:deleteAnnotation", (_, id) => webCanvasController.deleteAnnotation(id));
   ipcMain.handle("web-canvas:focusAnnotation", (_, id) => webCanvasController.focusAnnotation(id));
   ipcMain.handle("web-canvas:getState", () => webCanvasController.getState());
   ipcMain.handle("web-canvas:capture", () => webCanvasController.captureViewport());
+  ipcMain.handle("web-canvas:captureRegion", (event, geometry) => {
+    if (event.sender !== webCanvasController?.view?.webContents) throw new Error("无效的 PageLens 截图来源。");
+    return webCanvasController.captureRegion(geometry);
+  });
+  ipcMain.handle("web-canvas:readAnnotationCapture", (_, id) => webCanvasController.readAnnotationCapture(id));
   ipcMain.on("web-canvas:annotation-create", (event, annotation) => {
     if (event.sender === webCanvasController?.view?.webContents) webCanvasController.saveAnnotation(annotation);
   });

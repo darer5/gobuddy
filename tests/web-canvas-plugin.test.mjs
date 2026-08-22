@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { apply } from "../plugins/dsh-web-canvas/lib/index.js";
 
-test("Web Canvas tools satisfy Harness/model naming and output contracts", () => {
+test("PageLens tools satisfy Harness/model naming and output contracts", () => {
   const tools = [];
   apply({ tools: { register: (tool) => tools.push(tool) } });
 

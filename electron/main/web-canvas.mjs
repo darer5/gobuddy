@@ -5,6 +5,8 @@ import path from "node:path";
 import { AnnotationStore, createWebContext, normalizeWebUrl } from "./web-canvas-core.mjs";
 
 const MIN_VIEW_SIZE = 80;
+const MIN_CAPTURE_SIZE = 8;
+const MAX_CAPTURE_EDGE = 1600;
 
 export class WebCanvasController {
   constructor({ mainWindow, WebContentsView, session, shell, userDataPath, preloadPath, sendEvent }) {
@@ -20,6 +22,9 @@ export class WebCanvasController {
     this.annotationStatuses = new Map();
     this.view = null;
     this.visible = false;
+    this.suspended = false;
+    this.readingMode = true;
+    this.tool = "select";
     this.bridgeServer = null;
     this.bridgeToken = crypto.randomBytes(24).toString("hex");
     this.bridgeUrl = "";
@@ -74,7 +79,11 @@ export class WebCanvasController {
     for (const event of ["did-navigate", "did-navigate-in-page", "page-title-updated"]) {
       contents.on(event, () => void this.refreshContext());
     }
-    contents.on("did-finish-load", () => void this.refreshContext().then(() => this.restoreAnnotations()));
+    contents.on("did-finish-load", () => void this.refreshContext().then(() => {
+      this.syncReadingMode();
+      this.syncTool();
+      this.restoreAnnotations();
+    }));
     contents.on("render-process-gone", (_event, details) => {
       this.emit("web-canvas:error", { message: `网页渲染进程已退出：${details.reason}` });
     });
@@ -85,7 +94,7 @@ export class WebCanvasController {
   async open(payload = {}) {
     const view = this.ensureView();
     this.visible = true;
-    view.setVisible(true);
+    view.setVisible(!this.suspended);
     if (payload.bounds) this.setBounds(payload.bounds);
     const target = normalizeWebUrl(payload.url || this.currentContext?.url);
     if (view.webContents.getURL() !== target) await view.webContents.loadURL(target);
@@ -97,6 +106,12 @@ export class WebCanvasController {
     this.visible = false;
     this.view?.setVisible(false);
     return { ok: true };
+  }
+
+  setSuspended(value) {
+    this.suspended = Boolean(value);
+    this.view?.setVisible(this.visible && !this.suspended);
+    return { ok: true, suspended: this.suspended };
   }
 
   destroy() {
@@ -141,9 +156,25 @@ export class WebCanvasController {
     this.view?.webContents.reload();
   }
 
+  setReadingMode(value) {
+    this.readingMode = Boolean(value);
+    this.syncReadingMode();
+    this.emitState();
+    return { ok: true, readingMode: this.readingMode };
+  }
+
+  syncReadingMode() {
+    this.view?.webContents.send("web-canvas:reading-mode", this.readingMode);
+  }
+
   setTool(tool) {
-    this.view?.webContents.send("web-canvas:set-tool", String(tool || "select"));
-    return { ok: true };
+    this.tool = new Set(["select", "region", "rectangle", "arrow", "freehand"]).has(tool) ? tool : "select";
+    this.syncTool();
+    return { ok: true, tool: this.tool };
+  }
+
+  syncTool() {
+    this.view?.webContents.send("web-canvas:set-tool", this.tool);
   }
 
   undo() {
@@ -152,7 +183,9 @@ export class WebCanvasController {
   }
 
   deleteAnnotation(id) {
+    const existing = this.store.list().find((item) => item.id === String(id));
     const removed = this.store.remove(String(id));
+    if (removed) this.removeCapture(existing?.capturePath);
     this.view?.webContents.send("web-canvas:delete", String(id));
     this.emitState();
     return { ok: removed };
@@ -165,14 +198,20 @@ export class WebCanvasController {
 
   saveAnnotation(annotation) {
     if (!this.currentContext) return null;
+    const existing = this.store.list().find((item) => item.id === annotation?.id);
+    const capturePath = this.isCapturePath(annotation?.capturePath) ? annotation.capturePath : undefined;
     const item = this.store.upsert({
       ...annotation,
+      capturePath,
       pageIdentity: this.currentContext.pageIdentity,
       url: this.currentContext.canonicalUrl,
       site: this.currentContext.site,
       adapter: this.currentContext.adapter,
       entity: this.currentContext.entity,
     });
+    if (existing?.capturePath && existing.capturePath !== item.capturePath) {
+      this.removeCapture(existing.capturePath);
+    }
     this.emitState();
     return item;
   }
@@ -222,7 +261,7 @@ export class WebCanvasController {
   }
 
   async captureViewport() {
-    if (!this.view || !this.currentContext) throw new Error("Web Canvas 当前没有可截图的页面。");
+    if (!this.view || !this.currentContext) throw new Error("PageLens 当前没有可截图的页面。");
     const image = await this.view.webContents.capturePage();
     const dir = path.join(path.dirname(this.store.filePath), "captures");
     fs.mkdirSync(dir, { recursive: true });
@@ -230,6 +269,60 @@ export class WebCanvasController {
     fs.writeFileSync(filePath, image.toPNG());
     const size = image.getSize();
     return { filePath, width: size.width, height: size.height, capturedAt: Date.now() };
+  }
+
+  async captureRegion(rawGeometry) {
+    if (!this.view || !this.currentContext) throw new Error("PageLens 当前没有可截图的页面。");
+    const content = this.view.webContents.getOwnerBrowserWindow?.()?.getContentBounds?.();
+    const viewBounds = this.view.getBounds?.() ?? { width: content?.width, height: content?.height };
+    const geometry = normalizeCaptureGeometry(rawGeometry, viewBounds);
+    let image = await this.view.webContents.capturePage(geometry);
+    const original = image.getSize();
+    const ratio = Math.min(1, MAX_CAPTURE_EDGE / Math.max(original.width, original.height));
+    if (ratio < 1) {
+      image = image.resize({
+        width: Math.max(1, Math.round(original.width * ratio)),
+        height: Math.max(1, Math.round(original.height * ratio)),
+      });
+    }
+    const dir = this.captureDirectory();
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `web-canvas-region-${Date.now()}-${crypto.randomBytes(3).toString("hex")}.png`);
+    fs.writeFileSync(filePath, image.toPNG());
+    const size = image.getSize();
+    return { filePath, width: size.width, height: size.height, capturedAt: Date.now() };
+  }
+
+  readAnnotationCapture(id) {
+    const item = this.store.list(this.currentContext?.pageIdentity).find((entry) => entry.id === String(id));
+    const filePath = item?.capturePath;
+    if (!this.isCapturePath(filePath) || !fs.existsSync(filePath)) {
+      throw new Error("标记截图不存在，请重新框选行情区域。");
+    }
+    const bytes = fs.readFileSync(filePath);
+    return {
+      dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+      fileName: path.basename(filePath),
+      filePath,
+    };
+  }
+
+  captureDirectory() {
+    return path.join(path.dirname(this.store.filePath), "captures");
+  }
+
+  isCapturePath(filePath) {
+    if (!filePath) return false;
+    const root = path.resolve(this.captureDirectory());
+    const candidate = path.resolve(String(filePath));
+    return candidate.startsWith(`${root}${path.sep}`);
+  }
+
+  removeCapture(filePath) {
+    if (!this.isCapturePath(filePath)) return;
+    try { fs.unlinkSync(filePath); } catch (error) {
+      if (error?.code !== "ENOENT") this.emit("web-canvas:error", { message: "无法清理旧的行情截图。" });
+    }
   }
 
   restoreAnnotations() {
@@ -241,6 +334,8 @@ export class WebCanvasController {
   getState() {
     return {
       visible: this.visible,
+      suspended: this.suspended,
+      readingMode: this.readingMode,
       context: this.currentContext,
       annotations: this.store.list(this.currentContext?.pageIdentity).map((item) => ({
         ...item,
@@ -293,4 +388,14 @@ function readJson(req) {
     });
     req.on("error", reject);
   });
+}
+
+function normalizeCaptureGeometry(raw, bounds = {}) {
+  const maxWidth = Math.max(MIN_CAPTURE_SIZE, Math.floor(Number(bounds.width) || 10000));
+  const maxHeight = Math.max(MIN_CAPTURE_SIZE, Math.floor(Number(bounds.height) || 10000));
+  const x = Math.max(0, Math.min(maxWidth - MIN_CAPTURE_SIZE, Math.floor(Number(raw?.x) || 0)));
+  const y = Math.max(0, Math.min(maxHeight - MIN_CAPTURE_SIZE, Math.floor(Number(raw?.y) || 0)));
+  const width = Math.max(MIN_CAPTURE_SIZE, Math.min(maxWidth - x, Math.ceil(Number(raw?.width) || 0)));
+  const height = Math.max(MIN_CAPTURE_SIZE, Math.min(maxHeight - y, Math.ceil(Number(raw?.height) || 0)));
+  return { x, y, width, height };
 }

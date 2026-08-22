@@ -121,6 +121,18 @@ test("harness runtime avoids an occupied default web port", async () => {
   }
 });
 
+test("harness runtime honors an explicit test port", () => {
+  const previous = process.env.GOBUDDY_HARNESS_PORT;
+  process.env.GOBUDDY_HARNESS_PORT = "39080";
+  try {
+    const runtime = new HarnessRuntimeManager({ userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-")) });
+    assert.equal(runtime.port, 39080);
+  } finally {
+    if (previous === undefined) delete process.env.GOBUDDY_HARNESS_PORT;
+    else process.env.GOBUDDY_HARNESS_PORT = previous;
+  }
+});
+
 test("harness runtime adopts an externally restarted harness on the same port", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
   const binPath = writeServingHarnessScript(dir);
@@ -224,7 +236,32 @@ test("harness runtime auto-restarts after a crash and reports error when the bud
 
   const spawns = fs.readFileSync(spawnsPath, "utf8").trim().split("\n");
   assert.equal(spawns.length, 2, "initial spawn plus one auto-restart");
-  assert.match(runtime.status.message, /插件/);
+  assert.match(runtime.status.message, /退出码 1/);
+});
+
+test("harness runtime reports termination signals and captures stderr", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const binPath = path.join(dir, "HarnessRuntime", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  fs.mkdirSync(path.dirname(binPath), { recursive: true });
+  fs.writeFileSync(
+    binPath,
+    `process.stderr.write("runtime-diagnostic\\n");\nprocess.kill(process.pid, "SIGTERM");\n`,
+    "utf8",
+  );
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    settingsStore: { load: () => ({ ai: {} }) },
+    externalRestartGraceMs: 50,
+    externalRestartPollMs: 10,
+    autoRestartMax: 0,
+  });
+
+  await runtime.start();
+  await waitForCondition(() => runtime.getStatus().state === "error", 4000);
+
+  assert.match(runtime.status.message, /信号 SIGTERM/);
+  assert.match(fs.readFileSync(path.join(dir, "gobuddy-main.log"), "utf8"), /runtime-diagnostic/);
 });
 
 function listenOnPort(port) {
@@ -408,6 +445,39 @@ test("ensureProfileBundles appends only missing presets, preserving user bundles
     "dshmarket",
     "dsh-better-sidebar",
   ]);
+});
+
+test("ensureProfileBundles removes the retired WeRead preset without touching user plugins", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gobuddy-harness-"));
+  const runtimePath = path.join(dir, "HarnessRuntimeManaged");
+  fs.mkdirSync(runtimePath, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimePath, "gobuddy-harness-runtime.json"),
+    JSON.stringify({ presetPlugins: ["gobuddy-ui"] }),
+    "utf8",
+  );
+  writeFakePresetPlugin(runtimePath, "gobuddy-ui");
+  const profileDir = path.join(dir, "HarnessHomeManaged", "profiles", "web");
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(path.join(profileDir, "package.json"), JSON.stringify({
+    name: "dsh-profile-web",
+    private: true,
+    dependencies: { "dsh-weread-sidebar": "0.1.0", "my-plugin": "1.0.0" },
+    dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "dsh-weread-sidebar", "my-plugin"] } },
+  }), "utf8");
+
+  const runtime = new HarnessRuntimeManager({
+    userDataPath: dir,
+    runtimeDirName: "HarnessRuntimeManaged",
+    homeDirName: "HarnessHomeManaged",
+  });
+  runtime.runtimePath = runtimePath;
+  runtime.ensureProfileBundles();
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(profileDir, "package.json"), "utf8"));
+  assert.deepEqual(manifest.dsh.profile.bundles, ["@deepseek-ai/dsh-base", "my-plugin", "gobuddy-ui"]);
+  assert.equal(manifest.dependencies["dsh-weread-sidebar"], undefined);
+  assert.equal(manifest.dependencies["my-plugin"], "1.0.0");
 });
 
 test("ensureProfileBundles is a no-op without preset plugins", () => {

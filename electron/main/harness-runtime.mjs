@@ -38,6 +38,7 @@ const AUTO_RESTART_MAX = 2;
 const AUTO_RESTART_WINDOW_MS = 30000;
 /** HTTP probe timeout when deciding whether a port is served by a Harness web client. */
 const PROBE_TIMEOUT_MS = 1500;
+const RETIRED_PROFILE_BUNDLES = new Set(["dsh-weread-sidebar"]);
 
 export class HarnessRuntimeManager {
   constructor({
@@ -65,7 +66,7 @@ export class HarnessRuntimeManager {
     this.packages = packages;
     this.logPath = path.join(userDataPath, "gobuddy-main.log");
     this.host = "127.0.0.1";
-    this.port = 3080;
+    this.port = resolvePreferredPort(process.env.GOBUDDY_HARNESS_PORT);
     this.externalRestartGraceMs = externalRestartGraceMs;
     this.externalRestartPollMs = externalRestartPollMs;
     this.autoRestartMax = autoRestartMax;
@@ -225,14 +226,11 @@ export class HarnessRuntimeManager {
    * resolves bundles from the installation anchor first, and the client half
    * resolves from the harness process's own node_modules. This makes every
    * fresh install come with the preset plugins out of the box, with no
-   * network or pnpm involved. Existing profiles are only ever appended to
-   * (never have bundles removed), so user changes are preserved.
+   * network or pnpm involved. Existing profiles keep user bundles; only
+   * explicitly retired GoBuddy presets are removed during migration.
    */
   ensureProfileBundles() {
     const presets = this.readPresetPlugins();
-    if (presets.length === 0) {
-      return;
-    }
     const profileDir = path.join(this.homePath, "profiles", "web");
     const manifestPath = path.join(profileDir, "package.json");
     let manifest;
@@ -241,12 +239,13 @@ export class HarnessRuntimeManager {
     } catch {
       manifest = { name: "dsh-profile-web", private: true, dependencies: {} };
     }
-    const bundles = Array.isArray(manifest.dsh?.profile?.bundles)
+    const previousBundles = Array.isArray(manifest.dsh?.profile?.bundles)
       ? [...manifest.dsh.profile.bundles]
       : ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"];
+    const bundles = previousBundles.filter((name) => !RETIRED_PROFILE_BUNDLES.has(name));
     const seeded = [];
     const skipped = [];
-    let changed = false;
+    let changed = bundles.length !== previousBundles.length;
     for (const preset of presets) {
       if (bundles.includes(preset)) {
         // 已在 profile 中声明的插件不再重复追加，也无需重新校验。
@@ -273,6 +272,7 @@ export class HarnessRuntimeManager {
         bundles,
       },
     };
+    for (const retired of RETIRED_PROFILE_BUNDLES) delete manifest.dependencies?.[retired];
     fs.mkdirSync(profileDir, { recursive: true });
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
     this.log("harness.profile.seeded", { presets: seeded, skipped, bundles });
@@ -287,10 +287,13 @@ export class HarnessRuntimeManager {
    */
   ensureProfileModuleLinks() {
     const presets = this.readPresetPlugins();
+    const linksDir = path.join(this.homePath, "profiles", "node_modules");
+    for (const retired of RETIRED_PROFILE_BUNDLES) {
+      fs.rmSync(path.join(linksDir, retired), { recursive: true, force: true });
+    }
     if (presets.length === 0) {
       return;
     }
-    const linksDir = path.join(this.homePath, "profiles", "node_modules");
     let linked = 0;
     for (const preset of presets) {
       if (!this.isUsablePresetPlugin(preset)) {
@@ -335,6 +338,7 @@ export class HarnessRuntimeManager {
     let manifest = {};
     try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")); } catch { /* create below */ }
     const presets = new Set(Array.isArray(manifest.presetPlugins) ? manifest.presetPlugins : []);
+    for (const retired of RETIRED_PROFILE_BUNDLES) presets.delete(retired);
     for (const [name, source] of entries) {
       if (!fs.existsSync(path.join(source, "package.json"))) {
         this.log("harness.localPreset.missing", { name, source });
@@ -469,7 +473,7 @@ export class HarnessRuntimeManager {
     this.ensureLocalPresetPlugins();
     this.ensureProfileBundles();
     this.ensureProfileModuleLinks();
-    this.port = await findAvailablePort(3080);
+    this.port = await findAvailablePort(this.port);
     this.terminating = false;
     this.autoRestartCount = 0;
     this.autoRestartWindowStart = 0;
@@ -503,8 +507,17 @@ export class HarnessRuntimeManager {
         ...this.extraEnv,
       },
       windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
+    let stdoutTail = "";
+    let stderrTail = "";
+    this.process.stdout.on("data", (chunk) => {
+      stdoutTail = appendOutputTail(stdoutTail, chunk);
+    });
+    this.process.stderr.on("data", (chunk) => {
+      stderrTail = appendOutputTail(stderrTail, chunk);
+    });
     this.silentProcessExit = false;
     this.process.once("error", (error) => {
       this.process = null;
@@ -514,13 +527,19 @@ export class HarnessRuntimeManager {
       }
       this.setStatus("error", `DeepSeek Harness runtime 启动失败：${error.message}`);
     });
-    this.process.once("exit", (code) => {
+    this.process.once("exit", (code, signal) => {
       this.process = null;
-      this.log("harness.process.exit", { code, silent: this.silentProcessExit });
+      this.log("harness.process.exit", {
+        code,
+        signal,
+        stdoutTail: stdoutTail.trim(),
+        stderrTail: stderrTail.trim(),
+        silent: this.silentProcessExit,
+      });
       if (this.silentProcessExit || this.terminating) {
         return;
       }
-      void this.handleProcessExit(code);
+      void this.handleProcessExit(code, signal);
     });
   }
 
@@ -534,7 +553,7 @@ export class HarnessRuntimeManager {
    * ourselves, bounded, so a plugin failure can never permanently break the
    * client restart.
    */
-  async handleProcessExit(code) {
+  async handleProcessExit(code, signal = null) {
     this.setStatus("restarting", "DeepSeek Harness runtime 已退出，正在恢复服务...", { notify: false });
 
     if (await this.waitForExternalRestart()) {
@@ -545,10 +564,11 @@ export class HarnessRuntimeManager {
       return;
     }
 
-    this.log("harness.process.exit.unrecovered", { code });
+    this.log("harness.process.exit.unrecovered", { code, signal });
+    const reason = signal ? `信号 ${signal}` : `退出码 ${code}`;
     this.setStatus(
       "error",
-      `DeepSeek Harness runtime 异常退出（${code}）。若由插件异常引起，请禁用最近安装的插件后重试。`,
+      `DeepSeek Harness runtime 异常退出（${reason}）。详情请查看 gobuddy-main.log。`,
     );
   }
 
@@ -737,4 +757,14 @@ function findAvailablePort(preferredPort) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolvePreferredPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : 3080;
+}
+
+function appendOutputTail(current, chunk, maxLength = 4000) {
+  const combined = current + chunk.toString();
+  return combined.length > maxLength ? combined.slice(-maxLength) : combined;
 }

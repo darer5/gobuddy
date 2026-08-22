@@ -53,7 +53,7 @@ npm run dist:mac
 
 注意事项:
 
-- `prepare:runtime-assets` 会在 **Mac 上**重新生成 `vendor/`(该目录已被 .gitignore 忽略,不随源码发布):Harness 运行时按当前平台安装原生预编译(darwin-x64 的 node-pty/sharp/koffi/ripgrep),node 运行时也换成 macOS 版。
+- `prepare:runtime-assets` 会在 **Mac 上**重新生成 `vendor/`(该目录已被 .gitignore 忽略,不随源码发布):Harness 运行时按当前平台安装原生预编译(darwin-x64 的 node-pty/sharp/koffi/ripgrep),Node 运行时使用兼容 macOS 12 的 Node.js 22 官方发行归档并校验 SHA-256。不要用 Homebrew 的 `bin/node` 直接打包，它依赖未随包分发的动态库。
 - **不要**把 Windows 机器上的 `vendor/` 拷到 Mac 用——里面的 `node.exe` 和 Windows 原生模块在 Mac 上无法运行。
 - 若你已有另一台机器装过 GoBuddy,可通过环境变量直接复用它的运行时目录,跳过联网安装:
   ```bash

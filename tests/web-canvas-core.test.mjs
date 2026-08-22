@@ -10,7 +10,8 @@ import {
   normalizeWebUrl,
 } from "../electron/main/web-canvas-core.mjs";
 
-test("normalizes and validates Web Canvas URLs", () => {
+test("normalizes and validates PageLens URLs", () => {
+  assert.equal(normalizeWebUrl(""), "https://www.xueqiu.com/");
   assert.equal(normalizeWebUrl("example.com"), "https://example.com/");
   assert.throws(() => normalizeWebUrl("file:///tmp/a"), /HTTP\/HTTPS/);
   assert.equal(canonicalizeWebUrl("https://example.com/a/?utm_source=x&b=2#part"), "https://example.com/a?b=2");

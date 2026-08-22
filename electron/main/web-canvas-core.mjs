@@ -8,11 +8,11 @@ const TRACKING_PARAMS = new Set([
 
 export function normalizeWebUrl(input) {
   const value = String(input ?? "").trim();
-  if (!value) return "https://xueqiu.com/S/SH600519";
+  if (!value) return "https://www.xueqiu.com/";
   const candidate = /^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`;
   const url = new URL(candidate);
   if (!new Set(["http:", "https:"]).has(url.protocol)) {
-    throw new Error("Web Canvas 仅允许打开 HTTP/HTTPS 页面。");
+    throw new Error("PageLens 仅允许打开 HTTP/HTTPS 页面。");
   }
   return url.href;
 }

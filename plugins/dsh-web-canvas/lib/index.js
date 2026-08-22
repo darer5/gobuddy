@@ -12,7 +12,7 @@ function output(description) {
 function bridge(path, options = {}) {
   const base = process.env.GOBUDDY_WEB_CANVAS_BRIDGE_URL;
   const token = process.env.GOBUDDY_WEB_CANVAS_BRIDGE_TOKEN;
-  if (!base || !token) throw new Error("Web Canvas 仅可在 GoBuddy Desktop 中使用。");
+  if (!base || !token) throw new Error("PageLens 仅可在 GoBuddy Desktop 中使用。");
   return fetch(`${base}${path}`, {
     ...options,
     headers: {
@@ -22,7 +22,7 @@ function bridge(path, options = {}) {
     },
   }).then(async (response) => {
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error || `Web Canvas bridge ${response.status}`);
+    if (!response.ok) throw new Error(body.error || `PageLens bridge ${response.status}`);
     return body;
   });
 }
@@ -30,14 +30,14 @@ function bridge(path, options = {}) {
 function apply(ctx) {
   ctx.tools.register({
     name: "web_get_current_context",
-    description: "获取用户当前在 GoBuddy Web Canvas 中浏览的网页、实体、选区与视口上下文。用户提到“这个网页、这里、当前股票”时优先调用。",
+    description: "获取用户当前在 GoBuddy PageLens 中浏览的网页、实体、选区与视口上下文。用户提到“这个网页、这里、当前股票”时优先调用。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     output: output("当前网页上下文 JSON"),
     execute: async () => JSON.stringify(await bridge("/context"), null, 2),
   });
   ctx.tools.register({
     name: "web_get_annotations",
-    description: "获取当前 Web Canvas 页面上用户创建的高亮、框选、文字和问题标注。",
+    description: "获取当前 PageLens 页面上用户创建的高亮、框选、文字和问题标注。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     output: output("当前页面标注 JSON"),
     execute: async () => JSON.stringify(await bridge("/annotations"), null, 2),
@@ -51,21 +51,21 @@ function apply(ctx) {
   });
   ctx.tools.register({
     name: "web_capture_viewport",
-    description: "截取用户当前可见的 Web Canvas 视口，返回本地图片路径与尺寸。",
+    description: "截取用户当前可见的 PageLens 视口，返回本地图片路径与尺寸。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     output: output("网页视口截图信息 JSON"),
     execute: async () => JSON.stringify(await bridge("/capture", { method: "POST", body: "{}" }), null, 2),
   });
   ctx.tools.register({
     name: "web_navigate",
-    description: "让 GoBuddy Web Canvas 导航到指定 HTTP/HTTPS 地址。",
+    description: "让 GoBuddy PageLens 导航到指定 HTTP/HTTPS 地址。",
     parameters: {
       type: "object",
       properties: { url: { type: "string", description: "要打开的完整网页地址" } },
       required: ["url"],
       additionalProperties: false,
     },
-    output: output("导航后的 Web Canvas 状态 JSON"),
+    output: output("导航后的 PageLens 状态 JSON"),
     execute: async (args) => JSON.stringify(await bridge("/navigate", { method: "POST", body: JSON.stringify({ url: args.url }) }), null, 2),
   });
   ctx.tools.register({

@@ -4,7 +4,11 @@ import path from "node:path";
 import {
   PRESET_PLUGINS,
   bootstrapHarnessRuntime,
+  patchTaskBoardIcon,
+  patchTaskBoardExclusivePanel,
   installPresetPlugins,
+  patchTaskBoardStartup,
+  syncDirectoryPresetPlugins,
   writeRuntimeManifest,
 } from "./harness-runtime-utils.mjs";
 import { defaultHarnessPackages } from "../electron/main/harness-runtime.mjs";
@@ -61,6 +65,14 @@ if (isRuntimeUpToDate(target)) {
   );
   bootstrapHarnessRuntime(target);
 }
+// Directory-backed plugins are source code owned by this repository. Refresh
+// them even when the much larger npm runtime was already up to date.
+syncDirectoryPresetPlugins(target);
+// The runtime may have been considered up to date and skipped above. Keep the
+// compatibility fix idempotent and mandatory for every packaging run.
+patchTaskBoardStartup(target);
+patchTaskBoardIcon(target);
+patchTaskBoardExclusivePanel(target);
 console.log(`Preset profile plugins: ${Object.keys(PRESET_PLUGINS).join(", ")}`);
 
 /**
